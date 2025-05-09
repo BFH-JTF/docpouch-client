@@ -1,0 +1,19 @@
+{
+  "name": "docpouch-client",
+  "version": "0.8.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["docPouch", "API"],
+  "author": "Jan Frecè",
+  "license": "MIT",
+  "description": "A small class to more easily access the docPouch API",
+  "devDependencies": {
+    "@types/node": "^22.15.17"
+  },
+  "dependencies": {
+    "typescript": "^5.8.3"
+  }
+}
