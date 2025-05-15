@@ -52,6 +52,14 @@ export interface I_DocumentCreationOwned extends I_DocumentCreation {
     owner: string;
 }
 
+export interface I_DocumentQuery {
+    _id?: string;
+    owner?: string;
+    title?: string;
+    type?: number;
+    subType?: number;
+}
+
 // Structure related types
 export interface I_DataStructure {
     _id?: string | undefined;

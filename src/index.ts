@@ -1,12 +1,12 @@
-import type { 
+import type {
     I_UserEntry,
     I_UserLogin,
     I_UserCreation,
     I_UserUpdate,
-    I_UserDisplay, 
+    I_UserDisplay,
     I_DocumentEntry,
-    I_DataStructure, 
-    I_LoginResponse
+    I_DataStructure,
+    I_LoginResponse, I_DocumentQuery
 } from "./types.js";
 
 export default class Index {
@@ -79,8 +79,8 @@ export default class Index {
         return await this.request<I_DocumentEntry[]>('/docs/list', 'GET');
     }
 
-    async fetchDocument(documentID: string): Promise<I_DocumentEntry> {
-        return await this.request<I_DocumentEntry>(`/docs/fetch/${documentID}`, 'GET');
+    async fetchDocument(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
+        return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'GET');
     }
 
     async updateDocument(documentID: string, documentData: I_DocumentEntry): Promise<void> {
