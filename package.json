@@ -1,17 +1,21 @@
 {
   "name": "docpouch-client",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc"
   },
-  "keywords": ["docPouch", "API"],
+  "keywords": [
+    "docPouch",
+    "API"
+  ],
   "author": "Jan Frecè",
   "license": "MIT",
   "description": "A small class to more easily access the docPouch API",
   "devDependencies": {
-    "@types/node": "^22.15.17"
+    "@types/node": "^22.15.21",
+    "socket.io-client": "^4.8.1"
   },
   "dependencies": {
     "typescript": "^5.8.3"

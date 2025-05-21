@@ -52,6 +52,12 @@ export interface I_DocumentCreationOwned extends I_DocumentCreation {
     owner: string;
 }
 
+export interface I_DocumentUpdate extends I_DocumentQuery{
+    _id: string;
+    content?: any;
+    description?: string;
+}
+
 export interface I_DocumentQuery {
     _id?: string;
     owner?: string;
@@ -82,4 +88,27 @@ export interface I_StructureCreation {
     description?: string;
     reference?: any;
     fields: any[];
+}
+
+export interface I_StructureUpdate {
+    _id: string;
+    name?: string;
+    description?: string;
+    reference?: any;
+    fields?: any[];
+}
+
+// WebSocket related types
+export interface I_WsMessage {
+    newDocument?: I_DocumentEntry;
+    newStructure?: I_StructureEntry;
+    newUser?: I_UserEntry;
+    removedID?: string;
+    changedDocument?: I_DocumentUpdate;
+    changedStructure?: I_StructureUpdate;
+    changedUser?: I_UserUpdate;
+    confirmSubscription?: boolean;
+    confirmUnsubscription?: boolean;
+    ping?: number;
+    pong?: number;
 }
