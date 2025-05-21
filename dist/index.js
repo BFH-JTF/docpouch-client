@@ -1,9 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+const socket_io_client_1 = require("socket.io-client");
 class Index {
-    constructor(baseUrl) {
+    constructor(baseUrl, callback) {
         this.token = null;
         this.baseUrl = baseUrl;
+        this.socketManager = new socket_io_client_1.Manager(baseUrl, { autoConnect: false });
+        if (callback) {
+            this.socketManager.connect();
+            this.socketManager.onAny((event, data) => callback(event, data));
+        }
     }
     async request(endpoint, method, body, requiresAuth = true) {
         const headers = {
@@ -54,8 +60,8 @@ class Index {
     async listDocuments() {
         return await this.request('/docs/list', 'GET');
     }
-    async fetchDocument(documentID) {
-        return await this.request(`/docs/fetch/${documentID}`, 'GET');
+    async fetchDocument(queryObject) {
+        return await this.request(`/docs/fetch/`, 'GET');
     }
     async updateDocument(documentID, documentData) {
         await this.request(`/docs/update/${documentID}`, 'PATCH', documentData);

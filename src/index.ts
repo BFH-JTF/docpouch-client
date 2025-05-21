@@ -88,7 +88,7 @@ export default class Index {
     }
 
     async fetchDocument(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
-        return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'GET');
+        return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'POST', queryObject);
     }
 
     async updateDocument(documentID: string, documentData: I_DocumentEntry): Promise<void> {
