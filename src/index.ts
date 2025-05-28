@@ -6,15 +6,32 @@ import type {
     I_UserDisplay,
     I_DocumentEntry,
     I_DataStructure,
-    I_LoginResponse, I_DocumentQuery
+    I_LoginResponse, I_DocumentQuery, I_StructureCreation, I_WsMessage, I_EventString
 } from "./types.js";
+import {io, Socket} from "socket.io-client";
+import packetJson from '../package.json'
 
 export default class Index {
     baseUrl: string;
     private token: string | null = null;
+    socket: Socket
 
-    constructor(baseUrl: string) {
+    constructor(baseUrl: string, callback?: (event: I_EventString, data: I_WsMessage) => void) {
         this.baseUrl = baseUrl;
+
+        this.socket = io(baseUrl, { autoConnect: false });
+        if (callback) {
+            this.socket.connect();
+            this.socket.onAny((event: I_EventString, data: I_WsMessage) => {
+                if (event === "heartbeatPing") {
+                    console.log("Ping event received:", data);
+                    this.socket.emit("heartbeatPong", Date.now());
+                }
+                else {
+                    callback(event, data);
+                }
+            });
+        }
     }
 
     private async request<T>(endpoint: string, method: string, body?: any, requiresAuth: boolean = true): Promise<T> {
@@ -80,7 +97,7 @@ export default class Index {
     }
 
     async fetchDocument(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
-        return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'GET');
+        return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'POST', queryObject);
     }
 
     async updateDocument(documentID: string, documentData: I_DocumentEntry): Promise<void> {
@@ -92,7 +109,7 @@ export default class Index {
     }
 
     // Data Structure Endpoints
-    async createStructure(structure: I_DataStructure): Promise<I_DataStructure> {
+    async createStructure(structure: I_StructureCreation): Promise<I_DataStructure> {
         return await this.request<I_DataStructure>('/structures/create', 'POST', structure);
     }
 
@@ -114,6 +131,10 @@ export default class Index {
 
     getToken() {
         return this.token;
+    }
+
+    getVersion() {
+        return packetJson.version;
     }
 }
 
