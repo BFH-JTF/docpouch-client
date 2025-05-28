@@ -14,6 +14,8 @@ export interface I_UserCreation {
     name: string;
     password: string;
     email?: string;
+    department: string;
+    group: string;
     isAdmin: boolean;
 }
 
@@ -21,12 +23,16 @@ export interface I_UserUpdate {
     name?: string;
     password?: string;
     email?: string;
+    department?: string;
+    group?: string;
     isAdmin?: boolean;
 }
 
 export interface I_UserDisplay {
     _id: string;
     username: string;
+    department: string;
+    group: string;
     email?: string;
 }
 
@@ -98,7 +104,11 @@ export interface I_StructureUpdate {
     fields?: any[];
 }
 
-// WebSocket related types
+// WebSocket-related types
+export type I_EventString = 'subscribe' | 'unsubscribe' | 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" |
+    "newUser" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "confirmSubscription" |
+    "confirmUnsubscription";
+
 export interface I_WsMessage {
     newDocument?: I_DocumentEntry;
     newStructure?: I_StructureEntry;
@@ -109,6 +119,6 @@ export interface I_WsMessage {
     changedUser?: I_UserUpdate;
     confirmSubscription?: boolean;
     confirmUnsubscription?: boolean;
-    ping?: number;
-    pong?: number;
+    heartbeatPing?: number;
+    heartbeatPong?: number;
 }

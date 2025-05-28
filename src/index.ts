@@ -6,22 +6,31 @@ import type {
     I_UserDisplay,
     I_DocumentEntry,
     I_DataStructure,
-    I_LoginResponse, I_DocumentQuery, I_StructureCreation, I_WsMessage
+    I_LoginResponse, I_DocumentQuery, I_StructureCreation, I_WsMessage, I_EventString
 } from "./types.js";
 import {io, Socket} from "socket.io-client";
+import packetJson from '../package.json'
 
 export default class Index {
     baseUrl: string;
     private token: string | null = null;
     socket: Socket
 
-    constructor(baseUrl: string, callback?: (event: string, data: I_WsMessage) => void) {
+    constructor(baseUrl: string, callback?: (event: I_EventString, data: I_WsMessage) => void) {
         this.baseUrl = baseUrl;
 
         this.socket = io(baseUrl, { autoConnect: false });
         if (callback) {
             this.socket.connect();
-            this.socket.onAny((event: string, data: I_WsMessage) => callback(event, data));
+            this.socket.onAny((event: I_EventString, data: I_WsMessage) => {
+                if (event === "heartbeatPing") {
+                    console.log("Ping event received:", data);
+                    this.socket.emit("heartbeatPong", Date.now());
+                }
+                else {
+                    callback(event, data);
+                }
+            });
         }
     }
 
@@ -122,6 +131,10 @@ export default class Index {
 
     getToken() {
         return this.token;
+    }
+
+    getVersion() {
+        return packetJson.version;
     }
 }
 
