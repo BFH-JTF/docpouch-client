@@ -1,14 +1,26 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const socket_io_client_1 = require("socket.io-client");
+const package_json_1 = __importDefault(require("../package.json"));
 class Index {
     constructor(baseUrl, callback) {
         this.token = null;
         this.baseUrl = baseUrl;
-        this.socketManager = new socket_io_client_1.Manager(baseUrl, { autoConnect: false });
+        this.socket = (0, socket_io_client_1.io)(baseUrl, { autoConnect: false });
         if (callback) {
-            this.socketManager.connect();
-            this.socketManager.onAny((event, data) => callback(event, data));
+            this.socket.connect();
+            this.socket.onAny((event, data) => {
+                if (event === "heartbeatPing") {
+                    console.log("Ping event received:", data);
+                    this.socket.emit("heartbeatPong", Date.now());
+                }
+                else {
+                    callback(event, data);
+                }
+            });
         }
     }
     async request(endpoint, method, body, requiresAuth = true) {
@@ -61,7 +73,7 @@ class Index {
         return await this.request('/docs/list', 'GET');
     }
     async fetchDocument(queryObject) {
-        return await this.request(`/docs/fetch/`, 'GET');
+        return await this.request(`/docs/fetch/`, 'POST', queryObject);
     }
     async updateDocument(documentID, documentData) {
         await this.request(`/docs/update/${documentID}`, 'PATCH', documentData);
@@ -87,6 +99,9 @@ class Index {
     }
     getToken() {
         return this.token;
+    }
+    getVersion() {
+        return package_json_1.default.version;
     }
 }
 exports.default = Index;
