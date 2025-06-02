@@ -1,5 +1,4 @@
-import Index from '../index.js';
-import { Socket } from 'socket.io-client';
+import dbPouchClient from '../index.js';
 import packetJson from '../../package.json';
 import {
   I_UserLogin,
@@ -9,8 +8,6 @@ import {
   I_DocumentQuery,
   I_StructureCreation,
   I_DataStructure,
-  I_EventString,
-  I_WsMessage
 } from '../types.js';
 
 // Mock socket.io-client
@@ -31,7 +28,7 @@ global.fetch = jest.fn();
 const mockFetch = global.fetch as jest.Mock;
 
 describe('Index Class', () => {
-  let index: Index;
+  let index: dbPouchClient;
   const baseUrl = 'http://example.com';
 
   beforeEach(() => {
@@ -40,7 +37,7 @@ describe('Index Class', () => {
     mockFetch.mockClear();
 
     // Create a new instance of Index for each test
-    index = new Index(baseUrl);
+    index = new dbPouchClient(baseUrl);
 
     // Mock successful fetch response
     mockFetch.mockImplementation(() => 
@@ -65,7 +62,7 @@ describe('Index Class', () => {
 
     it('should connect socket and set up event handler when callback is provided', () => {
       const mockCallback = jest.fn();
-      const indexWithCallback = new Index(baseUrl, mockCallback);
+      const indexWithCallback = new dbPouchClient(baseUrl, mockCallback);
 
       expect(indexWithCallback.socket.connect).toHaveBeenCalled();
       expect(indexWithCallback.socket.onAny).toHaveBeenCalled();
@@ -86,10 +83,10 @@ describe('Index Class', () => {
 
     it('should return the correct version', () => {
       // Mock package.json
-      jest.mock('../../package.json', () => ({ version: '0.8.2' }), { virtual: true });
+      jest.mock('../../package.json', () => ({ version: packetJson.version }), { virtual: true });
 
       // We need to re-create the index instance to pick up the mocked package.json
-      const newIndex = new Index(baseUrl);
+      const newIndex = new dbPouchClient(baseUrl);
       expect(newIndex.getVersion()).toBe(packetJson.version);
     });
   });
@@ -475,7 +472,7 @@ describe('Index Class', () => {
   describe('WebSocket functionality', () => {
     it('should connect socket when callback is provided', () => {
       const mockCallback = jest.fn();
-      const indexWithCallback = new Index(baseUrl, mockCallback);
+      const indexWithCallback = new dbPouchClient(baseUrl, mockCallback);
 
       // Verify that connect was called
       expect(indexWithCallback.socket.connect).toHaveBeenCalled();
@@ -483,14 +480,10 @@ describe('Index Class', () => {
 
     it('should set up event handler when callback is provided', () => {
       const mockCallback = jest.fn();
-      const indexWithCallback = new Index(baseUrl, mockCallback);
+      const indexWithCallback = new dbPouchClient(baseUrl, mockCallback);
 
       // Verify that onAny was called
       expect(indexWithCallback.socket.onAny).toHaveBeenCalled();
     });
-
-    // Note: Testing the actual callback behavior would require more complex mocking
-    // that's beyond the scope of this basic test suite. In a real-world scenario,
-    // we would use a more sophisticated approach to test the WebSocket event handling.
   });
 });

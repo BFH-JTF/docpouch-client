@@ -107,7 +107,7 @@ export interface I_StructureUpdate {
 // WebSocket-related types
 export type I_EventString = 'subscribe' | 'unsubscribe' | 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" |
     "newUser" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "confirmSubscription" |
-    "confirmUnsubscription";
+    "confirmUnsubscription" | "removedUser" | "removedStructure" | "removedDocument";
 
 export interface I_WsMessage {
     newDocument?: I_DocumentEntry;

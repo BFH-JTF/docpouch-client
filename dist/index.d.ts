@@ -1,10 +1,14 @@
 import type { I_UserEntry, I_UserLogin, I_UserCreation, I_UserUpdate, I_UserDisplay, I_DocumentEntry, I_DataStructure, I_LoginResponse, I_DocumentQuery, I_StructureCreation, I_WsMessage, I_EventString } from "./types.js";
 import { Socket } from "socket.io-client";
-export default class Index {
+export default class dbPouchClient {
     baseUrl: string;
-    private token;
+    private authToken;
     socket: Socket;
-    constructor(baseUrl: string, callback?: (event: I_EventString, data: I_WsMessage) => void);
+    callbackFunction: ((event: I_EventString, data: I_WsMessage) => void) | undefined;
+    realTimeSync: boolean;
+    constructor(host: string, port: number, callback?: (event: I_EventString, data: I_WsMessage) => void);
+    setRealTimeSync: (realTimeSync: boolean) => void;
+    private initWebSocket;
     private request;
     login(credentials: I_UserLogin): Promise<I_LoginResponse | null>;
     listUsers(): Promise<I_UserEntry[]>;
@@ -23,4 +27,6 @@ export default class Index {
     setToken(token: string | null): void;
     getToken(): string | null;
     getVersion(): string;
+    subscribe(): Promise<void>;
+    unsubscribe(): Promise<void>;
 }

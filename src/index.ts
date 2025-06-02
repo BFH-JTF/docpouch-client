@@ -11,37 +11,93 @@ import type {
 import {io, Socket} from "socket.io-client";
 import packetJson from '../package.json'
 
-export default class Index {
+export default class dbPouchClient {
     baseUrl: string;
-    private token: string | null = null;
-    socket: Socket
+    private authToken: string | null = null;
+    socket: Socket;
+    callbackFunction;
+    realTimeSync: boolean = false;
 
-    constructor(baseUrl: string, callback?: (event: I_EventString, data: I_WsMessage) => void) {
-        this.baseUrl = baseUrl;
+    constructor(host: string, port: number, callback?: (event: I_EventString, data: I_WsMessage) => void) {
+        this.baseUrl = host;
+        this.socket = io(host + ':' + port, {
+            autoConnect: false,
+            transports: ['websocket'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            path: '/socket.io'
+        });
 
-        this.socket = io(baseUrl, { autoConnect: false });
-        if (callback) {
-            this.socket.connect();
-            this.socket.onAny((event: I_EventString, data: I_WsMessage) => {
-                if (event === "heartbeatPing") {
-                    console.log("Ping event received:", data);
-                    this.socket.emit("heartbeatPong", Date.now());
-                }
-                else {
-                    callback(event, data);
-                }
-            });
+        // Set the callback function
+        this.callbackFunction = callback;
+    }
+
+    setRealTimeSync = (realTimeSync: boolean) => {
+        if (this.authToken) {
+            this.realTimeSync = realTimeSync;
+            if (realTimeSync)
+                this.initWebSocket();
+            else
+                this.socket.disconnect();
         }
+    }
+
+    private initWebSocket() {
+        // Disconnect if already connected
+        if (this.socket.connected) {
+            this.socket.disconnect();
+        }
+
+        // Create new socket with auth
+        this.socket = io(this.baseUrl, {
+            autoConnect: true,
+            transports: ['websocket'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            auth: {
+                token: this.authToken
+            },
+            path: '/socket.io'
+        });
+
+        // Set up event handlers
+        this.socket.onAny((event: I_EventString, data: I_WsMessage) => {
+            if (event === "heartbeatPing") {
+                console.log("Ping event received:", data);
+                this.socket.emit("heartbeatPong", Date.now());
+            }
+            else if (this.callbackFunction){
+                this.callbackFunction(event, data);
+            }
+        });
+
+        // Handle connection errors
+        this.socket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error.message);
+
+            // If the error is authentication-related, we might want to handle it specially
+            if (error.message.includes('Authentication error')) {
+                console.warn('Socket authentication failed. Token may be invalid.');
+            }
+        });
+
+        // Confirm when connected
+        this.socket.on('connect', () => {
+            console.log('Socket connected successfully with authentication');
+        });
     }
 
     private async request<T>(endpoint: string, method: string, body?: any, requiresAuth: boolean = true): Promise<T> {
         const headers: HeadersInit = {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
         };
 
-        if (requiresAuth && this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
-        }
+        if (requiresAuth && this.authToken)
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        if (this.socket.id)
+            headers['X-Socket-ID'] = this.socket.id;
 
         const options: RequestInit = {
             method,
@@ -53,7 +109,7 @@ export default class Index {
 
         if (!response.ok) {
             if (response.status === 401 || response.status === 403) {
-                this.token = null;
+                this.authToken = null;
             }
             throw new Error(`API error: ${response.status} ${response.statusText}`);
         }
@@ -65,7 +121,13 @@ export default class Index {
     async login(credentials: I_UserLogin): Promise<I_LoginResponse | null> {
         const response = await this.request<I_LoginResponse>('/users/login', 'POST', credentials, false);
         if (response.token) {
-            this.token = response.token;
+            this.authToken = response.token;
+
+            // Reconnect websocket with new token if realtime sync is enabled
+            if (this.realTimeSync) {
+                this.initWebSocket();
+            }
+
             return {token: response.token, isAdmin: response.isAdmin};
         }
         return null;
@@ -126,16 +188,43 @@ export default class Index {
     }
 
     setToken(token: string | null): void {
-        this.token = token;
+        this.authToken = token;
+
+        // If realtime sync is enabled, reinitialize the socket with the new token
+        if (this.realTimeSync && token) {
+            this.initWebSocket();
+        } else if (this.socket.connected) {
+            this.socket.disconnect();
+        }
     }
 
     getToken() {
-        return this.token;
+        return this.authToken;
     }
 
     getVersion() {
         return packetJson.version;
     }
+
+    // Websocket Endpoints
+    async subscribe(): Promise<void> {
+        if (this.socket.connected) {
+            this.socket.emit("subscribe");
+        } else if (this.authToken) {
+            // If not connected but we have a token, connect first
+            this.initWebSocket();
+            // Wait for connection before subscribing
+            this.socket.once('connect', () => {
+                this.socket.emit("subscribe");
+            });
+        }
+    }
+
+    async unsubscribe(): Promise<void> {
+        if (this.socket.connected) {
+            this.socket.emit("unsubscribe");
+        }
+    }
 }
 
-module.exports = Index;
+module.exports = dbPouchClient;

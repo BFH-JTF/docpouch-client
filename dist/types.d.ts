@@ -84,7 +84,7 @@ export interface I_StructureUpdate {
     reference?: any;
     fields?: any[];
 }
-export type I_EventString = 'subscribe' | 'unsubscribe' | 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" | "newUser" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "confirmSubscription" | "confirmUnsubscription";
+export type I_EventString = 'subscribe' | 'unsubscribe' | 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" | "newUser" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "confirmSubscription" | "confirmUnsubscription" | "removedUser" | "removedStructure" | "removedDocument";
 export interface I_WsMessage {
     newDocument?: I_DocumentEntry;
     newStructure?: I_StructureEntry;
