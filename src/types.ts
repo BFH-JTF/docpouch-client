@@ -104,6 +104,16 @@ export interface I_StructureUpdate {
     fields?: any[];
 }
 
+// Document type related types
+export interface I_DocumentType {
+    _id?: string;
+    type: number;
+    subType: number;
+    name: string;
+    description?: string;
+    defaultStructureID?: string;
+}
+
 // WebSocket-related types
 export type I_EventString = 'subscribe' | 'unsubscribe' | 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" |
     "newUser" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "confirmSubscription" |
