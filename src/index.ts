@@ -134,7 +134,7 @@ export default class docPouchClient {
         this.initWebSocket();
       }
 
-      return {token: response.token, isAdmin: response.isAdmin};
+      return {token: response.token, isAdmin: response.isAdmin, userName: response.userName};
     }
     return null;
   }
@@ -195,7 +195,7 @@ export default class docPouchClient {
 
   // Data Type Endpoints
   async createType(type: I_DocumentType): Promise<I_DocumentType> {
-    return await this.request<I_DocumentType>('/types/write', 'PATCH', type);
+    return await this.request<I_DocumentType>('/types/write', 'POST', type);
   }
 
   async removeType(typeID: string) {
@@ -207,7 +207,7 @@ export default class docPouchClient {
   }
 
   async updateType(updatedType: I_DocumentType): Promise<void> {
-    await this.request<void>(`/types/write`, 'PATCH', updatedType);
+    await this.request<void>(`/types/write`, 'POST', updatedType);
   }
 
   setToken(token: string | null): void {

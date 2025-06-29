@@ -1,6 +1,6 @@
 {
   "name": "docpouch-client",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -23,8 +23,8 @@
   "description": "A small class to more easily access the docPouch API",
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.0.3",
-    "jest": "^30.0.2",
+    "@types/node": "^24.0.7",
+    "jest": "^30.0.3",
     "ts-jest": "^29.4.0"
   },
   "dependencies": {

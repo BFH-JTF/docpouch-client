@@ -14,6 +14,7 @@ export interface I_UserCreation {
     isAdmin: boolean;
 }
 export interface I_UserUpdate {
+    _id: string;
     name?: string;
     password?: string;
     email?: string;
@@ -31,6 +32,7 @@ export interface I_UserDisplay {
 export interface I_LoginResponse {
     token: string;
     isAdmin: boolean;
+    userName: string;
 }
 export interface I_DocumentEntry extends I_DocumentCreationOwned {
     _id: string;
@@ -41,6 +43,8 @@ export interface I_DocumentCreation {
     type: number;
     subType: number;
     content: any;
+    shareWithGroup: boolean;
+    shareWithDepartment: boolean;
 }
 export interface I_DocumentCreationOwned extends I_DocumentCreation {
     owner: string;
@@ -56,35 +60,46 @@ export interface I_DocumentQuery {
     title?: string;
     type?: number;
     subType?: number;
+    shareWithGroup?: boolean;
+    shareWithDepartment?: boolean;
 }
 export interface I_DataStructure {
     _id?: string | undefined;
     name: string;
     description: string;
-    reference?: any;
-    fields: any[];
+    fields: I_StructureField[];
+}
+export interface I_StructureField {
+    name: string;
+    type: string;
+    items?: string;
 }
 export interface I_StructureEntry {
     _id?: string;
     name: string;
     description: string;
-    reference?: any;
-    fields: any[];
+    fields: I_StructureField[];
 }
 export interface I_StructureCreation {
     name: string;
     description?: string;
-    reference?: any;
-    fields: any[];
+    fields: I_StructureField[];
 }
 export interface I_StructureUpdate {
     _id: string;
     name?: string;
     description?: string;
-    reference?: any;
-    fields?: any[];
+    fields?: I_StructureField[];
 }
-export type I_EventString = 'subscribe' | 'unsubscribe' | 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" | "newUser" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "confirmSubscription" | "confirmUnsubscription" | "removedUser" | "removedStructure" | "removedDocument";
+export interface I_DocumentType {
+    _id?: string;
+    type: number;
+    subType: number;
+    name: string;
+    description?: string;
+    defaultStructureID?: string;
+}
+export type I_EventString = 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" | "newUser" | "newType" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "changedType" | "removedUser" | "removedStructure" | "removedDocument" | "removedType";
 export interface I_WsMessage {
     newDocument?: I_DocumentEntry;
     newStructure?: I_StructureEntry;
@@ -97,4 +112,5 @@ export interface I_WsMessage {
     confirmUnsubscription?: boolean;
     heartbeatPing?: number;
     heartbeatPong?: number;
+    newType?: I_DocumentType;
 }
