@@ -17,5 +17,9 @@
     "allowSyntheticDefaultImports": true
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "**/*.test.ts", "**/*.types.ts", "./dist/**/*"]
+  "exclude": [
+    "node_modules",
+    "**/*.test.ts",
+    "./dist/**/*"
+  ]
 }

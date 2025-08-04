@@ -1,6 +1,6 @@
 {
   "name": "docpouch-client",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -21,14 +21,18 @@
   "author": "Jan Frecè",
   "license": "MIT",
   "description": "A small class to more easily access the docPouch API",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BFH-JTF/docpouch-client"
+  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.7",
     "jest": "^30.0.3",
-    "ts-jest": "^29.4.0"
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.8.3"
   },
   "dependencies": {
-    "socket.io-client": "^4.8.1",
-    "typescript": "^5.8.3"
+    "socket.io-client": "^4.8.1"
   }
 }
