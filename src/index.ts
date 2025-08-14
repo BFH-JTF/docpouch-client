@@ -496,7 +496,7 @@ export interface I_StructureCreation {
 }
 
 export interface I_StructureUpdate {
-  _id: string;
+    _id?: string;
   name?: string;
   description?: string;
   fields?: I_StructureField[];
