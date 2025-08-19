@@ -407,7 +407,6 @@ export interface I_UserCreation {
 }
 
 export interface I_UserUpdate {
-  _id: string;
   name?: string;
   password?: string;
   email?: string;
@@ -451,7 +450,6 @@ export interface I_DocumentCreationOwned extends I_DocumentCreation {
 }
 
 export interface I_DocumentUpdate extends I_DocumentQuery {
-  _id: string;
   content?: any;
   description?: string;
 }
@@ -496,7 +494,6 @@ export interface I_StructureCreation {
 }
 
 export interface I_StructureUpdate {
-    _id?: string;
   name?: string;
   description?: string;
   fields?: I_StructureField[];
