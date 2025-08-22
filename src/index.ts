@@ -407,6 +407,7 @@ export interface I_UserCreation {
 }
 
 export interface I_UserUpdate {
+    _id?: string;
     name?: string;
     password?: string;
     email?: string;
