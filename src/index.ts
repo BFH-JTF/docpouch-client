@@ -154,7 +154,7 @@ export default class docPouchClient {
         return await this.request<I_DocumentEntry[]>('/docs/list', 'GET');
     }
 
-    async fetchDocument(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
+    async fetchDocuments(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
         return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'POST', queryObject);
     }
 
