@@ -114,7 +114,7 @@ export default class docPouchClient {
     }
 
     // User Administration Endpoints
-    async login(credentials: I_UserLogin): Promise<I_LoginResponse | null> {
+    async login(credentials: UserLogin): Promise<{ token: string } | null> {
         const response = await this.request<I_LoginResponse>('/users/login', 'POST', credentials, false);
         if (response.token) {
             this.authToken = response.token;
@@ -124,21 +124,21 @@ export default class docPouchClient {
                 this.initWebSocket();
             }
 
-            return {token: response.token, isAdmin: response.isAdmin, userName: response.userName};
+            return {token: response.token};
         }
         return null;
     }
 
-    async listUsers(): Promise<I_UserEntry[]> {
-        return await this.request<I_UserEntry[]>('/users/list', 'GET');
+    async listUsers(): Promise<UserDisplay[]> {
+        return await this.request<UserDisplay[]>('/users/list', 'GET');
     }
 
-    async updateUser(userID: string, userData: I_UserUpdate): Promise<void> {
+    async updateUser(userID: string, userData: UserUpdate): Promise<void> {
         await this.request<void>(`/users/update/${userID}`, 'PATCH', userData);
     }
 
-    async createUser(userData: I_UserCreation): Promise<I_UserDisplay> {
-        return await this.request<I_UserDisplay>('/users/create', 'POST', userData);
+    async createUser(userData: UserCreation): Promise<UserDisplay> {
+        return await this.request<UserDisplay>('/users/create', 'POST', userData);
     }
 
     async removeUser(userID: string): Promise<void> {
@@ -146,58 +146,54 @@ export default class docPouchClient {
     }
 
     // Document Management Endpoints
-    async createDocument(document: I_DocumentEntry): Promise<I_DocumentEntry> {
-        return await this.request<I_DocumentEntry>('/docs/create', 'POST', document);
+    async createDocument(document: NewDocument): Promise<Document> {
+        return await this.request<Document>('/docs/create', 'POST', document);
     }
 
-    async listDocuments(): Promise<I_DocumentEntry[]> {
-        return await this.request<I_DocumentEntry[]>('/docs/list', 'GET');
+    async listDocuments(): Promise<Document[]> {
+        return await this.request<Document[]>('/docs/list', 'GET');
     }
 
-    async fetchDocuments(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
-        return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'POST', queryObject);
+    async fetchDocuments(query: DocumentQuery[]): Promise<Document[]> {
+        return await this.request<Document[]>(`/docs/fetch/`, 'POST', query);
     }
 
-    async updateDocument(documentID: string, documentData: I_DocumentEntry): Promise<void> {
+    async updateDocument(documentID: string, documentData: Partial<Document>): Promise<void> {
         await this.request<void>(`/docs/update/${documentID}`, 'PATCH', documentData);
     }
 
-    async removeDocument(documentID: string): Promise<void> {
+    async deleteDocument(documentID: string): Promise<void> {
         await this.request<void>(`/docs/remove/${documentID}`, 'DELETE');
     }
 
     // Data Structure Endpoints
-    async createStructure(structure: I_StructureCreation): Promise<I_DataStructure> {
-        return await this.request<I_DataStructure>('/structures/create', 'POST', structure);
+    async createDataStructure(structure: DataStructureCreation): Promise<DataStructure> {
+        return await this.request<DataStructure>('/structures/create', 'POST', structure);
     }
 
-    async getStructures(): Promise<I_DataStructure[]> {
-        return await this.request<I_DataStructure[]>('/structures/list', 'GET');
+    async listDataStructures(): Promise<DataStructure[]> {
+        return await this.request<DataStructure[]>('/structures/list', 'GET');
     }
 
-    async updateStructure(structureID: string, structureData: I_DataStructure): Promise<void> {
+    async updateDataStructure(structureID: string, structureData: Partial<DataStructure>): Promise<void> {
         await this.request<void>(`/structures/update/${structureID}`, 'PATCH', structureData);
     }
 
-    async removeStructure(structureID: string): Promise<void> {
+    async deleteDataStructure(structureID: string): Promise<void> {
         await this.request<void>(`/structures/remove/${structureID}`, 'DELETE');
     }
 
     // Data Type Endpoints
-    async createType(type: I_DocumentType): Promise<I_DocumentType> {
-        return await this.request<I_DocumentType>('/types/write', 'POST', type);
+    async createOrUpdateDocumentType(typeData: DocumentTypeEdit): Promise<void> {
+        await this.request<void>('/types/write', 'POST', typeData);
     }
 
-    async removeType(typeID: string) {
+    async deleteDocumentType(typeID: string) {
         return await this.request<void>(`/types/remove/${typeID}`, 'DELETE');
     }
 
-    async getTypes(): Promise<I_DocumentType[]> {
-        return await this.request<I_DocumentType[]>('/types/list', 'GET');
-    }
-
-    async updateType(updatedType: I_DocumentType): Promise<void> {
-        await this.request<void>(`/types/write`, 'POST', updatedType);
+    async listDocumentTypes(): Promise<DocumentTypeEdit[]> {
+        return await this.request<DocumentTypeEdit[]>('/types/list', 'GET');
     }
 
     setToken(token: string | null): void {
@@ -388,16 +384,16 @@ export default class docPouchClient {
 // Common type definitions for both frontend and backend
 
 // User related types
-export interface I_UserEntry extends I_UserCreation {
+export interface I_UserEntry extends UserCreation {
     _id: string;
 }
 
-export interface I_UserLogin {
+export interface UserLogin {
     name: string;
     password: string;
 }
 
-export interface I_UserCreation {
+export interface UserCreation {
     name: string;
     password: string;
     email?: string;
@@ -406,7 +402,7 @@ export interface I_UserCreation {
     isAdmin: boolean;
 }
 
-export interface I_UserUpdate {
+export interface UserUpdate {
     _id?: string;
     name?: string;
     password?: string;
@@ -416,9 +412,9 @@ export interface I_UserUpdate {
     isAdmin?: boolean;
 }
 
-export interface I_UserDisplay {
+export interface UserDisplay {
     _id: string;
-    username: string;
+    name: string;
     department: string;
     group: string;
     email?: string;
@@ -431,11 +427,17 @@ export interface I_LoginResponse {
 }
 
 // Document related types
-export interface I_DocumentEntry extends I_DocumentCreationOwned {
+export interface Document {
     _id: string;
+    type: number;
+    subType: number;
+    title: string;
+    content: string;
+    shareWithGroup: boolean;
+    shareWithDepartment: boolean;
 }
 
-export interface I_DocumentCreation {
+export interface NewDocument {
     title: string;
     description?: string;
     type: number;
@@ -446,16 +448,16 @@ export interface I_DocumentCreation {
 }
 
 
-export interface I_DocumentCreationOwned extends I_DocumentCreation {
+export interface I_DocumentCreationOwned extends NewDocument {
     owner: string;
 }
 
-export interface I_DocumentUpdate extends I_DocumentQuery {
+export interface I_DocumentUpdate extends DocumentQuery {
     content?: any;
     description?: string;
 }
 
-export interface I_DocumentQuery {
+export interface DocumentQuery {
     _id?: string;
     owner?: string;
     title?: string;
@@ -467,14 +469,13 @@ export interface I_DocumentQuery {
 
 
 // Structure related types
-export interface I_DataStructure {
-    _id?: string | undefined;
-    name: string;
-    description: string;
-    fields: I_StructureField[];
+export interface DataStructure {
+    _id: number;
+    title: string;
+    fields: DataField[];
 }
 
-export interface I_StructureField {
+export interface DataField {
     name: string;
     type: string;
     items?: string;
@@ -484,30 +485,29 @@ export interface I_StructureEntry {
     _id?: string;
     name: string;
     description: string;
-    fields: I_StructureField[];
+    fields: DataField[];
 }
 
 
-export interface I_StructureCreation {
-    name: string;
-    description?: string;
-    fields: I_StructureField[];
+export interface DataStructureCreation {
+    title: string;
+    fields: DataField[];
 }
 
 export interface I_StructureUpdate {
     _id?: string
     name?: string;
     description?: string;
-    fields?: I_StructureField[];
+    fields?: DataField[];
 }
 
 // Document type related types
-export interface I_DocumentType {
+export interface DocumentTypeEdit {
     _id?: string;
-    type: number;
-    subType: number;
     name: string;
     description?: string;
+    type: number;
+    subType: number;
     defaultStructureID?: string;
 }
 
@@ -517,16 +517,16 @@ export type I_EventString = 'heartbeatPong' | "heartbeatPing" | "newDocument" | 
     "removedUser" | "removedStructure" | "removedDocument" | "removedType";
 
 export interface I_WsMessage {
-    newDocument?: I_DocumentEntry;
+    newDocument?: Document;
     newStructure?: I_StructureEntry;
     newUser?: I_UserEntry;
     removedID?: string;
     changedDocument?: I_DocumentUpdate;
     changedStructure?: I_StructureUpdate;
-    changedUser?: I_UserUpdate;
+    changedUser?: UserUpdate;
     confirmSubscription?: boolean;
     confirmUnsubscription?: boolean;
     heartbeatPing?: number;
     heartbeatPong?: number;
-    newType?: I_DocumentType;
+    newType?: DocumentTypeEdit;
 }
