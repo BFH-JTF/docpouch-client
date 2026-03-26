@@ -96,7 +96,7 @@ await client.updateDocument('document-id', {
 });
 
 // Delete a document
-await client.deleteDocument('document-id');
+await client.removeDocument('document-id');
 
 // Fetch documents by query
 const documents = await client.fetchDocuments([
@@ -108,8 +108,8 @@ const documents = await client.fetchDocuments([
 
 ```typescript
 // Create a new data structure
-const newStructure = await client.createDataStructure({
-    title: "Data resulting from Vision-Mission-Value-Canvas",
+const newStructure = await client.createStructure({
+    name: "Data resulting from Vision-Mission-Value-Canvas",
     fields: [
         {
             name: "Mission value statement",
@@ -120,28 +120,28 @@ const newStructure = await client.createDataStructure({
 });
 
 // Update a data structure
-await client.updateDataStructure('structure-id', {
-    title: 'Updated Structure Title',
+await client.updateStructure('structure-id', {
+    name: 'Updated Structure Title',
     fields: [
         {name: 'New Field Name', type: 'number'}
     ]
 });
 
 // Delete a data structure
-await client.deleteDataStructure('structure-id');
+await client.removeStructure('structure-id');
 
 // List all data structures
-const structures = await client.listDataStructures();
+const structures = await client.getStructures();
 ```
 
 ### Document Type Management
 
 ```typescript
 // List all document types
-const docTypes = await client.listDocumentTypes();
+const docTypes = await client.getTypes();
 
-// Create or update a document type
-const newDocType = await client.createOrUpdateDocumentType({
+// Create a new document type
+const newDocType = await client.createType({
     name: "HR Wages",
     description: "HR Wage information Document listing wages per personnel ID",
     type: 14,
@@ -149,8 +149,16 @@ const newDocType = await client.createOrUpdateDocumentType({
     defaultStructureID: 'structure-id'
 });
 
+// Update a document type
+await client.updateType({
+    _id: 'doc-type-id',
+    name: 'Updated HR Wages',
+    type: 14,
+    subType: 2
+});
+
 // Delete a document type
-await client.deleteDocumentType('doc-type-id');
+await client.removeType('doc-type-id');
 ```
 
 ## API Reference
@@ -163,135 +171,145 @@ await client.deleteDocumentType('doc-type-id');
 
 #### Methods
 
-- `login(credentials: { name: string, password: string }): Promise<{ token: string } | null>`
+- `login(credentials: I_UserLogin): Promise<I_LoginResponse | null>`
 - `setToken(token: string): void`
-- `listUsers(): Promise<UserDisplay[]>`
-- `createUser(userData: UserCreation): Promise<UserDisplay>`
-- `updateUser(id: string, userData: UserUpdate): Promise<void>`
+- `listUsers(): Promise<I_UserDisplay[]>`
+- `createUser(userData: I_UserCreation): Promise<I_UserDisplay>`
+- `updateUser(id: string, userData: I_UserUpdate): Promise<void>`
 - `removeUser(id: string): Promise<void>`
-- `createDocument(docData: NewDocument): Promise<Document>`
-- `updateDocument(id: string, docData: Partial<Document>): Promise<void>`
-- `deleteDocument(id: string): Promise<void>`
-- `fetchDocuments(query: DocumentQuery[]): Promise<Document[]>`
-- `createDataStructure(structureData: DataStructureCreation): Promise<DataStructure>`
-- `updateDataStructure(id: string, structureData: Partial<DataStructure>): Promise<void>`
-- `deleteDataStructure(id: string): Promise<void>`
-- `listDataStructures(): Promise<DataStructure[]>`
-- `listDocumentTypes(): Promise<DocumentTypeEdit[]>`
-- `createOrUpdateDocumentType(typeData: DocumentTypeEdit): Promise<void>`
-- `deleteDocumentType(id: string): Promise<void>`
+- `createDocument(docData: I_DocumentCreation): Promise<I_DocumentEntry>`
+- `updateDocument(id: string, docData: I_DocumentUpdate): Promise<void>`
+- `removeDocument(id: string): Promise<void>`
+- `listDocuments(): Promise<I_DocumentEntry[]>`
+- `fetchDocuments(query: I_DocumentQuery[]): Promise<I_DocumentEntry[]>`
+- `createStructure(structureData: I_StructureCreation): Promise<I_StructureEntry>`
+- `updateStructure(id: string, structureData: I_StructureUpdate): Promise<void>`
+- `removeStructure(id: string): Promise<void>`
+- `getStructures(): Promise<I_StructureEntry[]>`
+- `getTypes(): Promise<I_DocumentType[]>`
+- `createType(typeData: I_DocumentType): Promise<void>`
+- `updateType(typeData: I_DocumentType): Promise<void>`
+- `removeType(id: string): Promise<void>`
+- `setRealTimeSync(newRealTimeSync: boolean): void`
+- `getVersion(): string`
 
 ## Types
 
-### UserDisplay
+### I_UserDisplay
 
 ```typescript
 {
-    _id: number;
-    name: string;
-    email ? : string;
+    _id: string;
+    username: string;
     department: string;
     group: string;
+    email?: string;
 }
 ```
 
-### UserCreation
+### I_UserCreation
 
 ```typescript
 {
     name: string;
     password: string;
-    email ? : string;
+    email?: string;
     department: string;
     group: string;
     isAdmin: boolean;
 }
 ```
 
-### UserUpdate
+### I_UserUpdate
 
 ```typescript
 {
-    name ? : string;
-    password ? : string;
-    email ? : string;
-    isAdmin ? : boolean;
-    department ? : string;
-    group ? : string;
+    _id?: string;
+    name?: string;
+    password?: string;
+    email?: string;
+    department?: string;
+    group?: string;
+    isAdmin?: boolean;
 }
 ```
 
-### Document
+### I_DocumentEntry
 
 ```typescript
 {
     _id: string;
+    owner: string;
+    title: string;
+    description?: string;
     type: number;
     subType: number;
-    title: string;
-    content: string;
+    content: any;
     shareWithGroup: boolean;
     shareWithDepartment: boolean;
 }
 ```
 
-### NewDocument
+### I_DocumentCreation
 
 ```typescript
 {
+    title: string;
+    description?: string;
     type: number;
     subType: number;
-    title: string;
-    content: string;
+    content: any;
     shareWithGroup: boolean;
     shareWithDepartment: boolean;
 }
 ```
 
-### DocumentQuery
+### I_DocumentQuery
 
 ```typescript
 {
-    _id ? : string;
-    type ? : number;
-    subType ? : number;
-    title ? : string;
-    description ? : string;
-    shareWithGroup ? : boolean;
-    shareWithDepartment ? : boolean;
+    _id?: string;
+    owner?: string;
+    title?: string;
+    type?: number;
+    subType?: number;
+    shareWithGroup?: boolean;
+    shareWithDepartment?: boolean;
 }
 ```
 
-### DataStructure
+### I_StructureEntry
 
 ```typescript
 {
-    _id: number;
-    title: string;
-    fields: DataField[];
+    _id?: string;
+    name: string;
+    description: string;
+    fields: I_StructureField[];
 }
 ```
 
-### DataStructureCreation
-
-```typescript
-{
-    title: string;
-    fields: DataField[];
-}
-```
-
-### DataField
+### I_StructureCreation
 
 ```typescript
 {
     name: string;
-    type: 'number' | 'string' | 'boolean' | 'array' | 'structure';
-    items ? : string; // For array and structure types
+    description?: string;
+    fields: I_StructureField[];
 }
 ```
 
-### DocumentTypeEdit
+### I_StructureField
+
+```typescript
+{
+    name: string;
+    type: string;
+    items?: string;
+}
+```
+
+### I_DocumentType
 
 ```typescript
 {
