@@ -114,6 +114,12 @@ export default class docPouchClient {
     }
 
     // User Administration Endpoints
+    /**
+     * Authenticates a user and stores the returned token for subsequent requests.
+     *
+     * @param {I_UserLogin} credentials - Username and password credentials.
+     * @returns {Promise<I_LoginResponse | null>} Login payload when successful, otherwise null.
+     */
     async login(credentials: I_UserLogin): Promise<I_LoginResponse | null> {
         const response = await this.request<I_LoginResponse>('/users/login', 'POST', credentials, false);
         if (response.token) {
@@ -129,77 +135,183 @@ export default class docPouchClient {
         return null;
     }
 
+    /**
+     * Retrieves all users visible to the authenticated user.
+     *
+     * @returns {Promise<I_UserEntry[]>} A list of user entries.
+     */
     async listUsers(): Promise<I_UserEntry[]> {
         return await this.request<I_UserEntry[]>('/users/list', 'GET');
     }
 
+    /**
+     * Updates a user by ID.
+     *
+     * @param {string} userID - The ID of the user to update.
+     * @param {I_UserUpdate} userData - Partial user fields to update.
+     * @returns {Promise<void>}
+     */
     async updateUser(userID: string, userData: I_UserUpdate): Promise<void> {
         await this.request<void>(`/users/update/${userID}`, 'PATCH', userData);
     }
 
+    /**
+     * Creates a new user.
+     *
+     * @param {I_UserCreation} userData - Data used to create the user.
+     * @returns {Promise<I_UserDisplay>} The created user payload returned by the API.
+     */
     async createUser(userData: I_UserCreation): Promise<I_UserDisplay> {
         return await this.request<I_UserDisplay>('/users/create', 'POST', userData);
     }
 
+    /**
+     * Removes a user by ID.
+     *
+     * @param {string} userID - The ID of the user to remove.
+     * @returns {Promise<void>}
+     */
     async removeUser(userID: string): Promise<void> {
         await this.request<void>(`/users/remove/${userID}`, 'DELETE');
     }
 
     // Document Management Endpoints
+    /**
+     * Creates a new document.
+     *
+     * @param {I_DocumentEntry} document - The document payload to create.
+     * @returns {Promise<I_DocumentEntry>} The created document.
+     */
     async createDocument(document: I_DocumentEntry): Promise<I_DocumentEntry> {
         return await this.request<I_DocumentEntry>('/docs/create', 'POST', document);
     }
 
+    /**
+     * Retrieves all documents visible to the authenticated user.
+     *
+     * @returns {Promise<I_DocumentEntry[]>} A list of document entries.
+     */
     async listDocuments(): Promise<I_DocumentEntry[]> {
         return await this.request<I_DocumentEntry[]>('/docs/list', 'GET');
     }
 
+    /**
+     * Fetches documents matching a query object.
+     *
+     * @param {I_DocumentQuery} queryObject - Query fields used for filtering.
+     * @returns {Promise<I_DocumentEntry[]>} Matching documents.
+     */
     async fetchDocuments(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]> {
         return await this.request<I_DocumentEntry[]>(`/docs/fetch/`, 'POST', queryObject);
     }
 
+    /**
+     * Updates a document by ID.
+     *
+     * @param {string} documentID - The ID of the document to update.
+     * @param {I_DocumentEntry} documentData - Updated document payload.
+     * @returns {Promise<void>}
+     */
     async updateDocument(documentID: string, documentData: I_DocumentEntry): Promise<void> {
         await this.request<void>(`/docs/update/${documentID}`, 'PATCH', documentData);
     }
 
+    /**
+     * Removes a document by ID.
+     *
+     * @param {string} documentID - The ID of the document to remove.
+     * @returns {Promise<void>}
+     */
     async removeDocument(documentID: string): Promise<void> {
         await this.request<void>(`/docs/remove/${documentID}`, 'DELETE');
     }
 
     // Data Structure Endpoints
+    /**
+     * Creates a new data structure.
+     *
+     * @param {I_StructureCreation} structure - Data structure payload to create.
+     * @returns {Promise<I_DataStructure>} The created data structure.
+     */
     async createStructure(structure: I_StructureCreation): Promise<I_DataStructure> {
         return await this.request<I_DataStructure>('/structures/create', 'POST', structure);
     }
 
+    /**
+     * Retrieves all data structures.
+     *
+     * @returns {Promise<I_DataStructure[]>} A list of data structures.
+     */
     async getStructures(): Promise<I_DataStructure[]> {
         return await this.request<I_DataStructure[]>('/structures/list', 'GET');
     }
 
+    /**
+     * Updates a data structure by ID.
+     *
+     * @param {string} structureID - The ID of the structure to update.
+     * @param {I_DataStructure} structureData - Updated structure payload.
+     * @returns {Promise<void>}
+     */
     async updateStructure(structureID: string, structureData: I_DataStructure): Promise<void> {
         await this.request<void>(`/structures/update/${structureID}`, 'PATCH', structureData);
     }
 
+    /**
+     * Removes a data structure by ID.
+     *
+     * @param {string} structureID - The ID of the structure to remove.
+     * @returns {Promise<void>}
+     */
     async removeStructure(structureID: string): Promise<void> {
         await this.request<void>(`/structures/remove/${structureID}`, 'DELETE');
     }
 
     // Data Type Endpoints
+    /**
+     * Creates or writes a document type.
+     *
+     * @param {I_DocumentType} type - The type payload.
+     * @returns {Promise<I_DocumentType>} The created or updated type.
+     */
     async createType(type: I_DocumentType): Promise<I_DocumentType> {
         return await this.request<I_DocumentType>('/types/write', 'POST', type);
     }
 
+    /**
+     * Removes a document type by ID.
+     *
+     * @param {string} typeID - The ID of the type to remove.
+     * @returns {Promise<void>}
+     */
     async removeType(typeID: string) {
         return await this.request<void>(`/types/remove/${typeID}`, 'DELETE');
     }
 
+    /**
+     * Retrieves all document types.
+     *
+     * @returns {Promise<I_DocumentType[]>} A list of document types.
+     */
     async getTypes(): Promise<I_DocumentType[]> {
         return await this.request<I_DocumentType[]>('/types/list', 'GET');
     }
 
+    /**
+     * Updates a document type.
+     *
+     * @param {I_DocumentType} updatedType - The full type payload to persist.
+     * @returns {Promise<void>}
+     */
     async updateType(updatedType: I_DocumentType): Promise<void> {
         await this.request<void>(`/types/write`, 'POST', updatedType);
     }
 
+    /**
+     * Sets or clears the authentication token used for API and WebSocket auth.
+     *
+     * @param {string | null} token - Bearer token to use, or null to clear it.
+     */
     setToken(token: string | null): void {
         console.log("Setting token to:", token ? "***token***" : "null");
 
@@ -234,10 +346,20 @@ export default class docPouchClient {
         }
     }
 
+    /**
+     * Returns the package version of this client.
+     *
+     * @returns {string} The semantic version string.
+     */
     getVersion() {
         return packetJson.version;
     }
 
+    /**
+     * Logs socket diagnostics and attempts a reconnect when possible.
+     *
+     * @returns {void}
+     */
     debugSocketConnection(): void {
         console.log("Socket connection debug info:");
         console.log("- Connected:", this.socket.connected);
@@ -353,6 +475,17 @@ export default class docPouchClient {
         }
     }
 
+    /**
+     * Sends an HTTP request to the configured docPouch backend.
+     *
+     * @template T
+     * @param {string} endpoint - Relative API endpoint (with or without leading slash).
+     * @param {string} method - HTTP method.
+     * @param {any} [body] - Optional JSON body.
+     * @param {boolean} [requiresAuth=true] - Whether the Authorization header should be attached.
+     * @returns {Promise<T>} Parsed JSON response body.
+     * @private
+     */
     private async request<T>(endpoint: string, method: string, body?: any, requiresAuth: boolean = true): Promise<T> {
         const headers: HeadersInit = {
             'Content-Type': 'application/json',

@@ -81,27 +81,36 @@ await client.removeUser('user-id');
 ```typescript
 // Create a new document
 const newDocument = await client.createDocument({
+    _id: 'document-id',
+    owner: 'user-id',
+    title: 'Mission Statement',
     type: 17,
     subType: 11,
-    title: "Mission Statement",
-    content: "{\"msg\": \"We strive for a world that...\"}",
+    content: '{"msg": "We strive for a world that..."}',
     shareWithGroup: false,
     shareWithDepartment: false
 });
 
 // Update a document
 await client.updateDocument('document-id', {
+    _id: 'document-id',
+    owner: 'user-id',
     title: 'Updated Mission Statement',
-    content: '{"msg": "Our updated mission..."}'
+    type: 17,
+    subType: 11,
+    content: '{"msg": "Our updated mission..."}',
+    shareWithGroup: false,
+    shareWithDepartment: false
 });
 
 // Delete a document
 await client.removeDocument('document-id');
 
+// List all documents
+const allDocuments = await client.listDocuments();
+
 // Fetch documents by query
-const documents = await client.fetchDocuments([
-    {type: 17, subType: 11}
-]);
+const documents = await client.fetchDocuments({type: 17, subType: 11});
 ```
 
 ### Data Structure Management
@@ -121,7 +130,9 @@ const newStructure = await client.createStructure({
 
 // Update a data structure
 await client.updateStructure('structure-id', {
+    _id: 'structure-id',
     name: 'Updated Structure Title',
+    description: 'Updated structure description',
     fields: [
         {name: 'New Field Name', type: 'number'}
     ]
@@ -167,33 +178,57 @@ await client.removeType('doc-type-id');
 
 #### Constructor
 
-- `new docPouchClient(baseUrl: string, port: number, callback?: (event: string, data: any) => void)`
+- `new docPouchClient(host: string, port?: number, callback?: (event: I_EventString, data: I_WsMessage) => void)`
 
 #### Methods
 
-- `login(credentials: I_UserLogin): Promise<I_LoginResponse | null>`
-- `setToken(token: string): void`
-- `listUsers(): Promise<I_UserDisplay[]>`
-- `createUser(userData: I_UserCreation): Promise<I_UserDisplay>`
-- `updateUser(id: string, userData: I_UserUpdate): Promise<void>`
-- `removeUser(id: string): Promise<void>`
-- `createDocument(docData: I_DocumentCreation): Promise<I_DocumentEntry>`
-- `updateDocument(id: string, docData: I_DocumentUpdate): Promise<void>`
-- `removeDocument(id: string): Promise<void>`
-- `listDocuments(): Promise<I_DocumentEntry[]>`
-- `fetchDocuments(query: I_DocumentQuery[]): Promise<I_DocumentEntry[]>`
-- `createStructure(structureData: I_StructureCreation): Promise<I_StructureEntry>`
-- `updateStructure(id: string, structureData: I_StructureUpdate): Promise<void>`
-- `removeStructure(id: string): Promise<void>`
-- `getStructures(): Promise<I_StructureEntry[]>`
-- `getTypes(): Promise<I_DocumentType[]>`
-- `createType(typeData: I_DocumentType): Promise<void>`
-- `updateType(typeData: I_DocumentType): Promise<void>`
-- `removeType(id: string): Promise<void>`
 - `setRealTimeSync(newRealTimeSync: boolean): void`
+- `login(credentials: I_UserLogin): Promise<I_LoginResponse | null>`
+- `listUsers(): Promise<I_UserEntry[]>`
+- `updateUser(userID: string, userData: I_UserUpdate): Promise<void>`
+- `createUser(userData: I_UserCreation): Promise<I_UserDisplay>`
+- `removeUser(userID: string): Promise<void>`
+- `createDocument(document: I_DocumentEntry): Promise<I_DocumentEntry>`
+- `listDocuments(): Promise<I_DocumentEntry[]>`
+- `fetchDocuments(queryObject: I_DocumentQuery): Promise<I_DocumentEntry[]>`
+- `updateDocument(documentID: string, documentData: I_DocumentEntry): Promise<void>`
+- `removeDocument(documentID: string): Promise<void>`
+- `createStructure(structure: I_StructureCreation): Promise<I_DataStructure>`
+- `getStructures(): Promise<I_DataStructure[]>`
+- `updateStructure(structureID: string, structureData: I_DataStructure): Promise<void>`
+- `removeStructure(structureID: string): Promise<void>`
+- `createType(type: I_DocumentType): Promise<I_DocumentType>`
+- `removeType(typeID: string): Promise<void>`
+- `getTypes(): Promise<I_DocumentType[]>`
+- `updateType(updatedType: I_DocumentType): Promise<void>`
+- `setToken(token: string | null): void`
 - `getVersion(): string`
+- `debugSocketConnection(): void`
 
 ## Types
+
+### I_UserEntry
+
+```typescript
+{
+    _id: string;
+    name: string;
+    password: string;
+    email?: string;
+    department: string;
+    group: string;
+    isAdmin: boolean;
+}
+```
+
+### I_UserLogin
+
+```typescript
+{
+    name: string;
+    password: string;
+}
+```
 
 ### I_UserDisplay
 
@@ -234,6 +269,16 @@ await client.removeType('doc-type-id');
 }
 ```
 
+### I_LoginResponse
+
+```typescript
+{
+    token: string;
+    isAdmin: boolean;
+    userName: string;
+}
+```
+
 ### I_DocumentEntry
 
 ```typescript
@@ -264,6 +309,37 @@ await client.removeType('doc-type-id');
 }
 ```
 
+### I_DocumentCreationOwned
+
+```typescript
+{
+    owner: string;
+    title: string;
+    description?: string;
+    type: number;
+    subType: number;
+    content: any;
+    shareWithGroup: boolean;
+    shareWithDepartment: boolean;
+}
+```
+
+### I_DocumentUpdate
+
+```typescript
+{
+    _id?: string;
+    owner?: string;
+    title?: string;
+    type?: number;
+    subType?: number;
+    shareWithGroup?: boolean;
+    shareWithDepartment?: boolean;
+    content?: any;
+    description?: string;
+}
+```
+
 ### I_DocumentQuery
 
 ```typescript
@@ -278,7 +354,7 @@ await client.removeType('doc-type-id');
 }
 ```
 
-### I_StructureEntry
+### I_DataStructure
 
 ```typescript
 {
@@ -299,6 +375,17 @@ await client.removeType('doc-type-id');
 }
 ```
 
+### I_StructureUpdate
+
+```typescript
+{
+    _id?: string;
+    name?: string;
+    description?: string;
+    fields?: I_StructureField[];
+}
+```
+
 ### I_StructureField
 
 ```typescript
@@ -309,15 +396,54 @@ await client.removeType('doc-type-id');
 }
 ```
 
+### I_StructureEntry
+
+```typescript
+{
+    _id?: string;
+    name: string;
+    description: string;
+    fields: I_StructureField[];
+}
+```
+
 ### I_DocumentType
 
 ```typescript
 {
-    _id ? : string;
+    _id?: string;
     name: string;
-    description ? : string;
+    description?: string;
     type: number;
     subType: number;
-    defaultStructureID ? : string;
+    defaultStructureID?: string;
+}
+```
+
+### I_EventString
+
+```typescript
+'heartbeatPong' | 'heartbeatPing' | 'newDocument' | 'newStructure' |
+'newUser' | 'newType' | 'removedID' | 'changedDocument' |
+'changedStructure' | 'changedUser' | 'changedType' | 'removedUser' |
+'removedStructure' | 'removedDocument' | 'removedType'
+```
+
+### I_WsMessage
+
+```typescript
+{
+    newDocument?: I_DocumentEntry;
+    newStructure?: I_StructureEntry;
+    newUser?: I_UserEntry;
+    removedID?: string;
+    changedDocument?: I_DocumentUpdate;
+    changedStructure?: I_StructureUpdate;
+    changedUser?: I_UserUpdate;
+    confirmSubscription?: boolean;
+    confirmUnsubscription?: boolean;
+    heartbeatPing?: number;
+    heartbeatPong?: number;
+    newType?: I_DocumentType;
 }
 ```
