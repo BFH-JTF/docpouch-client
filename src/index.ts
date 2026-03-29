@@ -576,6 +576,7 @@ export interface I_DocumentCreation {
     content: any;
     shareWithGroup: boolean;
     shareWithDepartment: boolean;
+    public: boolean;
 }
 
 
@@ -596,6 +597,7 @@ export interface I_DocumentQuery {
     subType?: number;
     shareWithGroup?: boolean;
     shareWithDepartment?: boolean;
+    public?: boolean;
 }
 
 
