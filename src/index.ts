@@ -130,7 +130,13 @@ export default class docPouchClient {
                 this.initWebSocket();
             }
 
-            return {token: response.token, isAdmin: response.isAdmin, userName: response.userName};
+            return {
+                _id: response._id,
+                token: response.token,
+                isAdmin: response.isAdmin,
+                userName: response.userName,
+                expiresIn: response.expiresIn
+            };
         }
         return null;
     }
@@ -558,9 +564,11 @@ export interface I_UserDisplay {
 }
 
 export interface I_LoginResponse {
+    _id: string;
     token: string;
     isAdmin: boolean;
     userName: string;
+    expiresIn: number
 }
 
 // Document related types
