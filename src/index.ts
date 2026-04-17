@@ -619,6 +619,7 @@ export interface I_DataStructure {
 
 export interface I_StructureField {
     name: string;
+    displayName: string; //should not contain spaces or non-ASCII characters
     type: string;
     items?: string;
 }
