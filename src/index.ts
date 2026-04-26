@@ -42,7 +42,7 @@ export default class docPouchClient {
      * @private
      * @type {boolean}
      */
-    private connectionInProgress = false;
+    private connectionInProgress: boolean = false;
 
     /**
      * Creates an instance of docPouchClient.
@@ -273,46 +273,6 @@ export default class docPouchClient {
         await this.request<void>(`/structures/remove/${structureID}`, 'DELETE');
     }
 
-    // Data Type Endpoints
-    /**
-     * Creates or writes a document type.
-     *
-     * @param {I_DocumentType} type - The type payload.
-     * @returns {Promise<I_DocumentType>} The created or updated type.
-     */
-    async createType(type: I_DocumentType): Promise<I_DocumentType> {
-        return await this.request<I_DocumentType>('/types/write', 'POST', type);
-    }
-
-    /**
-     * Removes a document type by ID.
-     *
-     * @param {string} typeID - The ID of the type to remove.
-     * @returns {Promise<void>}
-     */
-    async removeType(typeID: string) {
-        return await this.request<void>(`/types/remove/${typeID}`, 'DELETE');
-    }
-
-    /**
-     * Retrieves all document types.
-     *
-     * @returns {Promise<I_DocumentType[]>} A list of document types.
-     */
-    async getTypes(): Promise<I_DocumentType[]> {
-        return await this.request<I_DocumentType[]>('/types/list', 'GET');
-    }
-
-    /**
-     * Updates a document type.
-     *
-     * @param {I_DocumentType} updatedType - The full type payload to persist.
-     * @returns {Promise<void>}
-     */
-    async updateType(updatedType: I_DocumentType): Promise<void> {
-        await this.request<void>(`/types/write`, 'POST', updatedType);
-    }
-
     /**
      * Sets or clears the authentication token used for API and WebSocket auth.
      *
@@ -357,7 +317,7 @@ export default class docPouchClient {
      *
      * @returns {string} The semantic version string.
      */
-    getVersion() {
+    getVersion(): string {
         return packetJson.version;
     }
 
@@ -614,6 +574,8 @@ export interface I_DataStructure {
     _id?: string | undefined;
     name: string;
     description: string;
+    type: number
+    subType: number
     fields: I_StructureField[];
 }
 
@@ -624,17 +586,11 @@ export interface I_StructureField {
     items?: string;
 }
 
-export interface I_StructureEntry {
-    _id?: string;
-    name: string;
-    description: string;
-    fields: I_StructureField[];
-}
-
-
 export interface I_StructureCreation {
     name: string;
     description?: string;
+    type: number
+    subType: number
     fields: I_StructureField[];
 }
 
@@ -642,17 +598,9 @@ export interface I_StructureUpdate {
     _id?: string
     name?: string;
     description?: string;
+    type?: number
+    subType?: number
     fields?: I_StructureField[];
-}
-
-// Document type related types
-export interface I_DocumentType {
-    _id?: string;
-    type: number;
-    subType: number;
-    name: string;
-    description?: string;
-    defaultStructureID?: string;
 }
 
 // WebSocket-related types
@@ -662,7 +610,7 @@ export type I_EventString = 'heartbeatPong' | "heartbeatPing" | "newDocument" | 
 
 export interface I_WsMessage {
     newDocument?: I_DocumentEntry;
-    newStructure?: I_StructureEntry;
+    newStructure?: I_DataStructure;
     newUser?: I_UserEntry;
     removedID?: string;
     changedDocument?: I_DocumentUpdate;
@@ -672,5 +620,4 @@ export interface I_WsMessage {
     confirmUnsubscription?: boolean;
     heartbeatPing?: number;
     heartbeatPong?: number;
-    newType?: I_DocumentType;
 }
