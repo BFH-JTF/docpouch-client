@@ -36,6 +36,14 @@ export default class docPouchClient {
      * @type {string | null}
      */
     private authToken: string | null = null;
+    private oidcConfig: I_OidcConfig | null = null;
+    private oidcAccessToken: string | null = null;
+    private oidcRefreshToken: string | null = null;
+    private oidcIdToken: string | null = null;
+    private oidcTokenExpiry: number = 0;
+    private codeVerifier: string | null = null;
+    private oidcState: string | null = null;
+    private authMethod: 'jwt' | 'oidc' | 'none' = 'none';
     /**
      * Flag indicating whether a connection attempt is in progress.
      *
@@ -94,7 +102,7 @@ export default class docPouchClient {
 
         this.realTimeSync = newRealTimeSync;
 
-        if (newRealTimeSync && this.authToken) {
+        if (newRealTimeSync && (this.authToken || this.oidcAccessToken)) {
             console.log("Activating realtime updates");
 
             // Ensure we're not in the middle of another connection attempt
@@ -321,8 +329,10 @@ export default class docPouchClient {
     setToken(token: string | null): void {
         console.log("Setting token to:", token ? "***token***" : "null");
 
+        this.authMethod = token ? 'jwt' : 'none';
         const tokenChanged = this.authToken !== token;
         this.authToken = token;
+        if (!token) this.clearOidcTokens();
 
         if (!tokenChanged) {
             console.log("Token unchanged, no need to reconnect");
@@ -370,16 +380,148 @@ export default class docPouchClient {
         console.log("Socket connection debug info:");
         console.log("- Connected:", this.socket.connected);
         console.log("- Socket ID:", this.socket.id);
-        console.log("- Auth token present:", !!this.authToken);
+        console.log("- Auth token present:", !!this.authToken, "(method:", this.authMethod + ")");
+        console.log("- OIDC access token present:", !!this.oidcAccessToken);
         console.log("- Connection in progress:", this.connectionInProgress);
         console.log("- Realtime sync enabled:", this.realTimeSync);
         console.log("- Socket options:", this.socket.io.opts);
 
+        const activeToken = this.authMethod === 'oidc' ? this.oidcAccessToken : this.authToken;
         // Try to force reconnection
-        if (!this.socket.connected && this.authToken && this.realTimeSync) {
+        if (!this.socket.connected && activeToken && this.realTimeSync) {
             console.log("Attempting to force reconnection...");
-            this.socket.auth = {token: this.authToken};
+            this.socket.auth = {token: activeToken};
             this.socket.connect();
+        }
+    }
+
+    // OIDC Authentication Methods
+
+    /**
+     * Initiates the OIDC authentication flow by redirecting to the authorization endpoint.
+     *
+     * @param {I_OidcConfig} config - OIDC provider configuration.
+     * @returns {Promise<void>}
+     */
+    async loginWithOidc(config: I_OidcConfig): Promise<void> {
+        this.oidcConfig = config;
+        const response = await fetch(`${config.issuer}/.well-known/openid-configuration`);
+        const discovery = await response.json();
+
+        this.codeVerifier = this.generateCodeVerifier();
+        this.oidcState = this.generateState();
+        const codeChallenge = await this.generateCodeChallenge(this.codeVerifier!);
+
+        const params = new URLSearchParams({
+            response_type: 'code',
+            client_id: config.clientId,
+            redirect_uri: config.redirectUri,
+            scope: config.scopes?.join(' ') || 'openid profile',
+            state: this.oidcState!,
+            code_challenge: codeChallenge,
+            code_challenge_method: 'S256'
+        });
+
+        window.location.href = `${discovery.authorization_endpoint}?${params.toString()}`;
+    }
+
+    /**
+     * Handles the OIDC callback by exchanging the authorization code for tokens.
+     *
+     * @returns {Promise<boolean>} True if the callback was handled successfully.
+     */
+    async handleOidcCallback(): Promise<boolean> {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+        const error = params.get('error');
+
+        if (error) throw new Error(`OAuth error: ${error}`);
+        if (!code || !state) return false;
+        if (state !== this.oidcState) throw new Error('State mismatch');
+
+        const discovery = await this.discoverOidc();
+        const body = new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: this.oidcConfig!.redirectUri,
+            client_id: this.oidcConfig!.clientId,
+            code_verifier: this.codeVerifier || ''
+        });
+
+        const response = await fetch(discovery.token_endpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body.toString()
+        });
+
+        if (!response.ok) throw new Error('Token exchange failed');
+        const tokens: I_OidcTokenResponse = await response.json();
+        this.setOidcTokens(tokens);
+
+        if (this.realTimeSync) this.initWebSocket();
+
+        return true;
+    }
+
+    /**
+     * Ensures the OIDC access token is valid, refreshing it if necessary.
+     *
+     * @returns {Promise<string>} A valid access token.
+     */
+    async ensureValidOidcToken(): Promise<string> {
+        if (this.authMethod !== 'oidc' || !this.oidcAccessToken)
+            throw new Error('Not authenticated via OIDC');
+
+        if (Date.now() >= this.oidcTokenExpiry - 60000) {
+            await this.refreshOidcToken();
+        }
+        return this.oidcAccessToken!;
+    }
+
+    /**
+     * Returns the current authentication method.
+     *
+     * @returns {'jwt' | 'oidc' | 'none'} The active auth method.
+     */
+    getAuthMethod(): 'jwt' | 'oidc' | 'none' {
+        return this.authMethod;
+    }
+
+    /**
+     * Checks whether the client is currently authenticated.
+     *
+     * @returns {boolean} True if authenticated.
+     */
+    isAuthenticated(): boolean {
+        return this.authMethod !== 'none' && (
+            this.authMethod === 'jwt'
+                ? !!this.authToken
+                : (this.oidcAccessToken !== null && Date.now() < this.oidcTokenExpiry)
+        );
+    }
+
+    /**
+     * Returns the current active token, regardless of auth method.
+     *
+     * @returns {string | null} The active token or null.
+     */
+    getToken(): string | null {
+        return this.authMethod === 'oidc' ? this.oidcAccessToken : this.authToken;
+    }
+
+    /**
+     * Logs out the client, clearing all tokens and disconnecting WebSocket.
+     *
+     * @returns {Promise<void>}
+     */
+    async logout(): Promise<void> {
+        this.authToken = null;
+        this.clearOidcTokens();
+        this.authMethod = 'none';
+        if (this.socket.connected) this.socket.disconnect();
+        if (window.location.search.includes('code=') || window.location.search.includes('state=')) {
+            window.history.replaceState({}, '', window.location.pathname);
         }
     }
 
@@ -417,11 +559,13 @@ export default class docPouchClient {
      * @private
      */
     private initWebSocket() {
+        const token = this.authMethod === 'oidc' ? this.oidcAccessToken : this.authToken;
         console.log("initWebSocket called. Auth token present:", !!this.authToken,
             "Connection in progress:", this.connectionInProgress,
-            "Socket connected:", this.socket.connected);
+            "Socket connected:", this.socket.connected,
+            "Auth method:", this.authMethod);
 
-        if (!this.authToken) {
+        if (!token) {
             console.log("Skipping WebSocket initialization: No auth token");
             return;
         }
@@ -442,7 +586,7 @@ export default class docPouchClient {
             console.log("Setting up WebSocket connection with token");
 
             // Update the auth token
-            this.socket.auth = {token: this.authToken};
+            this.socket.auth = {token};
 
             // Remove any dynamic event listeners that might have been added
             this.socket.offAny();
@@ -497,8 +641,12 @@ export default class docPouchClient {
             'Content-Type': 'application/json',
         };
 
-        if (requiresAuth && this.authToken)
-            headers['Authorization'] = `Bearer ${this.authToken}`;
+        const authToken = this.authMethod === 'oidc'
+            ? await this.ensureValidOidcToken().catch(() => null)
+            : this.authToken;
+
+        if (requiresAuth && authToken)
+            headers['Authorization'] = `Bearer ${authToken}`;
         if (this.socket.id)
             headers['X-Socket-ID'] = this.socket.id;
 
@@ -521,6 +669,77 @@ export default class docPouchClient {
         }
 
         return await response.json() as T;
+    }
+
+    // OIDC Private Helpers
+
+    private async discoverOidc(): Promise<any> {
+        const response = await fetch(`${this.oidcConfig!.issuer}/.well-known/openid-configuration`);
+        return response.json();
+    }
+
+    private setOidcTokens(tokens: I_OidcTokenResponse): void {
+        this.authMethod = 'oidc';
+        this.oidcAccessToken = tokens.accessToken;
+        this.oidcRefreshToken = tokens.refreshToken || this.oidcRefreshToken;
+        this.oidcIdToken = tokens.idToken || null;
+        this.oidcTokenExpiry = Date.now() + (tokens.expiresIn * 1000);
+    }
+
+    private clearOidcTokens(): void {
+        this.oidcAccessToken = null;
+        this.oidcRefreshToken = null;
+        this.oidcIdToken = null;
+        this.oidcTokenExpiry = 0;
+        this.codeVerifier = null;
+        this.oidcState = null;
+        if (this.authMethod === 'oidc') this.authMethod = 'none';
+    }
+
+    private async refreshOidcToken(): Promise<void> {
+        if (!this.oidcRefreshToken) throw new Error('No refresh token available');
+        const discovery = await this.discoverOidc();
+        const body = new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: this.oidcRefreshToken,
+            client_id: this.oidcConfig!.clientId
+        });
+
+        const response = await fetch(discovery.token_endpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body.toString()
+        });
+
+        if (!response.ok) {
+            this.clearOidcTokens();
+            throw new Error('Token refresh failed');
+        }
+        const tokens: I_OidcTokenResponse = await response.json();
+        this.setOidcTokens(tokens);
+    }
+
+    private generateCodeVerifier(): string {
+        const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+        const array = new Uint8Array(64);
+        crypto.getRandomValues(array);
+        return Array.from(array, byte => charset[byte % charset.length]).join('');
+    }
+
+    private async generateCodeChallenge(verifier: string): Promise<string> {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(verifier);
+        const digest = await crypto.subtle.digest('SHA-256', data);
+        return btoa(String.fromCharCode(...new Uint8Array(digest)))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+    }
+
+    private generateState(): string {
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     }
 }
 
@@ -565,10 +784,40 @@ export interface I_UserDisplay {
 
 export interface I_LoginResponse {
     _id: string;
-    token: string;
+    token?: string;
     isAdmin: boolean;
     userName: string;
-    expiresIn: number
+    expiresIn?: number;
+}
+
+export interface I_OidcConfig {
+    issuer: string;
+    clientId: string;
+    redirectUri: string;
+    scopes?: string[];
+    clientSecret?: string;
+}
+
+export interface I_OidcTokenResponse {
+    accessToken: string;
+    refreshToken?: string;
+    idToken?: string;
+    expiresIn: number;
+    tokenType: string;
+    scope: string;
+}
+
+export interface I_OidcUserInfo {
+    sub: string;
+    name?: string;
+    email?: string;
+}
+
+export interface I_AuthState {
+    method: 'jwt' | 'oidc' | 'none';
+    token: string | null;
+    isAdmin: boolean;
+    userName: string;
 }
 
 // Document related types
