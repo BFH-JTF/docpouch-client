@@ -132,6 +132,7 @@ export default class docPouchClient {
         const response = await this.request<I_LoginResponse>('/users/login', 'POST', credentials, false);
         if (response.token) {
             this.authToken = response.token;
+            this.authMethod = 'jwt';
 
             // Reconnect websocket with new token if realtime sync is enabled
             if (this.realTimeSync) {
@@ -520,7 +521,8 @@ export default class docPouchClient {
         this.clearOidcTokens();
         this.authMethod = 'none';
         if (this.socket.connected) this.socket.disconnect();
-        if (window.location.search.includes('code=') || window.location.search.includes('state=')) {
+        if (typeof window !== 'undefined' && window.location &&
+            (window.location.search.includes('code=') || window.location.search.includes('state='))) {
             window.history.replaceState({}, '', window.location.pathname);
         }
     }

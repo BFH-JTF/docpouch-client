@@ -12,7 +12,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "jest"
+    "test": "node --experimental-vm-modules --no-warnings ./node_modules/jest/bin/jest.js --forceExit --silent"
   },
   "keywords": [
     "docPouch",
@@ -26,9 +26,12 @@
     "url": "https://github.com/BFH-JTF/docpouch-client"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.12.0",
+    "express": "^5.2.1",
     "jest": "^30.3.0",
+    "socket.io": "^4.8.3",
     "ts-jest": "^29.4.9",
     "typescript": "^5.9.3"
   },
