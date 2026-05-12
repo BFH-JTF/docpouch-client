@@ -282,46 +282,6 @@ export default class docPouchClient {
         await this.request<void>(`/structures/remove/${structureID}`, 'DELETE');
     }
 
-    // Data Type Endpoints
-    /**
-     * Creates or writes a document type.
-     *
-     * @param {I_DocumentType} type - The type payload.
-     * @returns {Promise<I_DocumentType>} The created or updated type.
-     */
-    async createType(type: I_DocumentType): Promise<I_DocumentType> {
-        return await this.request<I_DocumentType>('/types/write', 'POST', type);
-    }
-
-    /**
-     * Removes a document type by ID.
-     *
-     * @param {string} typeID - The ID of the type to remove.
-     * @returns {Promise<void>}
-     */
-    async removeType(typeID: string) {
-        return await this.request<void>(`/types/remove/${typeID}`, 'DELETE');
-    }
-
-    /**
-     * Retrieves all document types.
-     *
-     * @returns {Promise<I_DocumentType[]>} A list of document types.
-     */
-    async getTypes(): Promise<I_DocumentType[]> {
-        return await this.request<I_DocumentType[]>('/types/list', 'GET');
-    }
-
-    /**
-     * Updates a document type.
-     *
-     * @param {I_DocumentType} updatedType - The full type payload to persist.
-     * @returns {Promise<void>}
-     */
-    async updateType(updatedType: I_DocumentType): Promise<void> {
-        await this.request<void>(`/types/write`, 'POST', updatedType);
-    }
-
     /**
      * Sets or clears the authentication token used for API and WebSocket auth.
      *
@@ -457,7 +417,15 @@ export default class docPouchClient {
         });
 
         if (!response.ok) throw new Error('Token exchange failed');
-        const tokens: I_OidcTokenResponse = await response.json();
+        const raw = await response.json();
+        const tokens: I_OidcTokenResponse = {
+            accessToken: raw.access_token,
+            refreshToken: raw.refresh_token,
+            idToken: raw.id_token,
+            expiresIn: raw.expires_in,
+            tokenType: raw.token_type,
+            scope: raw.scope
+        };
         this.setOidcTokens(tokens);
 
         if (this.realTimeSync) this.initWebSocket();
@@ -465,10 +433,30 @@ export default class docPouchClient {
         return true;
     }
 
+    restoreOidcSession(): boolean {
+        if (typeof window === 'undefined' || !window.localStorage) return false;
+        const stored = localStorage.getItem('docpouch_oidc_session');
+        if (!stored) return false;
+        try {
+            const session = JSON.parse(stored);
+            if (!session.accessToken || Date.now() >= session.expiry) {
+                this.clearPersistedOidcSession();
+                return false;
+            }
+            this.authMethod = 'oidc';
+            this.oidcAccessToken = session.accessToken;
+            this.oidcRefreshToken = session.refreshToken || null;
+            this.oidcIdToken = session.idToken || null;
+            this.oidcTokenExpiry = session.expiry;
+            return true;
+        } catch {
+            this.clearPersistedOidcSession();
+            return false;
+        }
+    }
+
     /**
      * Ensures the OIDC access token is valid, refreshing it if necessary.
-     *
-     * @returns {Promise<string>} A valid access token.
      */
     async ensureValidOidcToken(): Promise<string> {
         if (this.authMethod !== 'oidc' || !this.oidcAccessToken)
@@ -525,6 +513,53 @@ export default class docPouchClient {
             (window.location.search.includes('code=') || window.location.search.includes('state='))) {
             window.history.replaceState({}, '', window.location.pathname);
         }
+    }
+
+    // OIDC Dynamic Client Registration Methods
+
+    /**
+     * Registers a new OIDC client with the server (dynamic client registration).
+     *
+     * @param {I_OidcClientRegistration} registration - Client metadata for registration.
+     * @param {string} [registrationToken] - Initial registration access token. If not provided, the current auth token is used.
+     * @returns {Promise<I_OidcClientResponse>} The registered client details.
+     */
+    async registerOidcClient(registration: I_OidcClientRegistration, registrationToken?: string): Promise<I_OidcClientResponse> {
+        return await this.request<I_OidcClientResponse>('/oidc/reg', 'POST', registration, true, registrationToken);
+    }
+
+    /**
+     * Retrieves the registration state of an existing OIDC client.
+     *
+     * @param {string} clientId - The client identifier.
+     * @param {string} [registrationToken] - The registration access token. If not provided, the current auth token is used.
+     * @returns {Promise<I_OidcClientResponse>} The client details.
+     */
+    async getOidcClient(clientId: string, registrationToken?: string): Promise<I_OidcClientResponse> {
+        return await this.request<I_OidcClientResponse>(`/oidc/reg/${clientId}`, 'GET', undefined, true, registrationToken);
+    }
+
+    /**
+     * Updates the registration of an existing OIDC client.
+     *
+     * @param {string} clientId - The client identifier.
+     * @param {I_OidcClientRegistration} registration - Updated client metadata.
+     * @param {string} [registrationToken] - The registration access token. If not provided, the current auth token is used.
+     * @returns {Promise<I_OidcClientResponse>} The updated client details.
+     */
+    async updateOidcClient(clientId: string, registration: I_OidcClientRegistration, registrationToken?: string): Promise<I_OidcClientResponse> {
+        return await this.request<I_OidcClientResponse>(`/oidc/reg/${clientId}`, 'PUT', registration, true, registrationToken);
+    }
+
+    /**
+     * Deletes an OIDC client registration.
+     *
+     * @param {string} clientId - The client identifier.
+     * @param {string} [registrationToken] - The registration access token. If not provided, the current auth token is used.
+     * @returns {Promise<void>}
+     */
+    async deleteOidcClient(clientId: string, registrationToken?: string): Promise<void> {
+        await this.request<void>(`/oidc/reg/${clientId}`, 'DELETE', undefined, true, registrationToken);
     }
 
     /**
@@ -638,14 +673,14 @@ export default class docPouchClient {
      * @returns {Promise<T>} Parsed JSON response body.
      * @private
      */
-    private async request<T>(endpoint: string, method: string, body?: any, requiresAuth: boolean = true): Promise<T> {
+    private async request<T>(endpoint: string, method: string, body?: any, requiresAuth: boolean = true, authTokenOverride?: string): Promise<T> {
         const headers: HeadersInit = {
             'Content-Type': 'application/json',
         };
 
-        const authToken = this.authMethod === 'oidc'
+        const authToken = authTokenOverride ?? (this.authMethod === 'oidc'
             ? await this.ensureValidOidcToken().catch(() => null)
-            : this.authToken;
+            : this.authToken);
 
         if (requiresAuth && authToken)
             headers['Authorization'] = `Bearer ${authToken}`;
@@ -670,6 +705,8 @@ export default class docPouchClient {
             throw new Error(`API error: ${response.status} ${response.statusText}`);
         }
 
+        if (response.status === 204) return undefined as T;
+
         return await response.json() as T;
     }
 
@@ -686,6 +723,7 @@ export default class docPouchClient {
         this.oidcRefreshToken = tokens.refreshToken || this.oidcRefreshToken;
         this.oidcIdToken = tokens.idToken || null;
         this.oidcTokenExpiry = Date.now() + (tokens.expiresIn * 1000);
+        this.persistOidcSession();
     }
 
     private clearOidcTokens(): void {
@@ -696,6 +734,25 @@ export default class docPouchClient {
         this.codeVerifier = null;
         this.oidcState = null;
         if (this.authMethod === 'oidc') this.authMethod = 'none';
+        this.clearPersistedOidcSession();
+    }
+
+    private persistOidcSession(): void {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const session = {
+                accessToken: this.oidcAccessToken,
+                refreshToken: this.oidcRefreshToken,
+                idToken: this.oidcIdToken,
+                expiry: this.oidcTokenExpiry
+            };
+            localStorage.setItem('docpouch_oidc_session', JSON.stringify(session));
+        }
+    }
+
+    private clearPersistedOidcSession(): void {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.removeItem('docpouch_oidc_session');
+        }
     }
 
     private async refreshOidcToken(): Promise<void> {
@@ -717,7 +774,15 @@ export default class docPouchClient {
             this.clearOidcTokens();
             throw new Error('Token refresh failed');
         }
-        const tokens: I_OidcTokenResponse = await response.json();
+        const raw = await response.json();
+        const tokens: I_OidcTokenResponse = {
+            accessToken: raw.access_token,
+            refreshToken: raw.refresh_token,
+            idToken: raw.id_token,
+            expiresIn: raw.expires_in,
+            tokenType: raw.token_type,
+            scope: raw.scope
+        };
         this.setOidcTokens(tokens);
     }
 
@@ -815,6 +880,35 @@ export interface I_OidcUserInfo {
     email?: string;
 }
 
+export interface I_OidcClientRegistration {
+    client_name: string;
+    redirect_uris: string[];
+    grant_types?: string[];
+    response_types?: string[];
+    scope?: string;
+    token_endpoint_auth_method?: 'client_secret_basic' | 'client_secret_post' | 'none';
+    application_type?: 'web' | 'native';
+    logo_uri?: string;
+    client_uri?: string;
+    policy_uri?: string;
+    tos_uri?: string;
+}
+
+export interface I_OidcClientResponse {
+    client_id: string;
+    client_secret?: string;
+    client_secret_expires_at?: number;
+    client_id_issued_at?: number;
+    registration_access_token?: string;
+    registration_client_uri?: string;
+    client_name?: string;
+    redirect_uris?: string[];
+    grant_types?: string[];
+    response_types?: string[];
+    scope?: string;
+    token_endpoint_auth_method?: string;
+}
+
 export interface I_AuthState {
     method: 'jwt' | 'oidc' | 'none';
     token: string | null;
@@ -865,6 +959,8 @@ export interface I_DataStructure {
     _id?: string | undefined;
     name: string;
     description: string;
+    type: number;
+    subType: number
     fields: I_StructureField[];
 }
 
@@ -874,14 +970,6 @@ export interface I_StructureField {
     type: string;
     items?: string;
 }
-
-export interface I_StructureEntry {
-    _id?: string;
-    name: string;
-    description: string;
-    fields: I_StructureField[];
-}
-
 
 export interface I_StructureCreation {
     name: string;
@@ -896,16 +984,6 @@ export interface I_StructureUpdate {
     fields?: I_StructureField[];
 }
 
-// Document type related types
-export interface I_DocumentType {
-    _id?: string;
-    type: number;
-    subType: number;
-    name: string;
-    description?: string;
-    defaultStructureID?: string;
-}
-
 // WebSocket-related types
 export type I_EventString = 'heartbeatPong' | "heartbeatPing" | "newDocument" | "newStructure" |
     "newUser" | "newType" | "removedID" | "changedDocument" | "changedStructure" | "changedUser" | "changedType" |
@@ -913,7 +991,7 @@ export type I_EventString = 'heartbeatPong' | "heartbeatPing" | "newDocument" | 
 
 export interface I_WsMessage {
     newDocument?: I_DocumentEntry;
-    newStructure?: I_StructureEntry;
+    newStructure?: I_DataStructure;
     newUser?: I_UserEntry;
     removedID?: string;
     changedDocument?: I_DocumentUpdate;
@@ -923,5 +1001,4 @@ export interface I_WsMessage {
     confirmUnsubscription?: boolean;
     heartbeatPing?: number;
     heartbeatPong?: number;
-    newType?: I_DocumentType;
 }

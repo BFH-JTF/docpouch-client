@@ -11,7 +11,7 @@
   },
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "node --experimental-vm-modules --no-warnings ./node_modules/jest/bin/jest.js --forceExit --silent"
   },
   "keywords": [
