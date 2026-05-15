@@ -359,6 +359,18 @@ export default class docPouchClient {
     // OIDC Authentication Methods
 
     /**
+     * Sets the OIDC configuration to use for the callback and token exchange.
+     * Call this before {@link handleOidcCallback} if the client was freshly
+     * instantiated after a page reload (the config is otherwise only set
+     * internally by {@link loginWithOidc} before the redirect).
+     *
+     * @param {I_OidcConfig} config - OIDC provider configuration.
+     */
+    setOidcConfig(config: I_OidcConfig): void {
+        this.oidcConfig = config;
+    }
+
+    /**
      * Initiates the OIDC authentication flow by redirecting to the authorization endpoint.
      *
      * @param {I_OidcConfig} config - OIDC provider configuration.
@@ -373,11 +385,20 @@ export default class docPouchClient {
         this.oidcState = this.generateState();
         const codeChallenge = await this.generateCodeChallenge(this.codeVerifier!);
 
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            sessionStorage.setItem('docpouch_oidc_state', this.oidcState!);
+            sessionStorage.setItem('docpouch_oidc_code_verifier', this.codeVerifier!);
+            sessionStorage.setItem('docpouch_oidc_issuer', config.issuer);
+            sessionStorage.setItem('docpouch_oidc_client_id', config.clientId);
+            sessionStorage.setItem('docpouch_oidc_redirect_uri', config.redirectUri);
+        }
+
+        const scope = config.scope || config.scopes?.join(' ') || 'openid profile';
         const params = new URLSearchParams({
             response_type: 'code',
             client_id: config.clientId,
             redirect_uri: config.redirectUri,
-            scope: config.scopes?.join(' ') || 'openid profile',
+            scope,
             state: this.oidcState!,
             code_challenge: codeChallenge,
             code_challenge_method: 'S256'
@@ -399,6 +420,26 @@ export default class docPouchClient {
 
         if (error) throw new Error(`OAuth error: ${error}`);
         if (!code || !state) return false;
+
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            this.oidcState = sessionStorage.getItem('docpouch_oidc_state') || this.oidcState;
+            this.codeVerifier = sessionStorage.getItem('docpouch_oidc_code_verifier') || this.codeVerifier;
+            sessionStorage.removeItem('docpouch_oidc_state');
+            sessionStorage.removeItem('docpouch_oidc_code_verifier');
+
+            if (!this.oidcConfig) {
+                const issuer = sessionStorage.getItem('docpouch_oidc_issuer');
+                const clientId = sessionStorage.getItem('docpouch_oidc_client_id');
+                const redirectUri = sessionStorage.getItem('docpouch_oidc_redirect_uri');
+                if (issuer && clientId && redirectUri) {
+                    this.oidcConfig = {issuer, clientId, redirectUri};
+                    sessionStorage.removeItem('docpouch_oidc_issuer');
+                    sessionStorage.removeItem('docpouch_oidc_client_id');
+                    sessionStorage.removeItem('docpouch_oidc_redirect_uri');
+                }
+            }
+        }
+
         if (state !== this.oidcState) throw new Error('State mismatch');
 
         const discovery = await this.discoverOidc();
@@ -861,6 +902,7 @@ export interface I_OidcConfig {
     issuer: string;
     clientId: string;
     redirectUri: string;
+    scope?: string;
     scopes?: string[];
     clientSecret?: string;
 }
