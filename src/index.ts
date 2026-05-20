@@ -546,6 +546,7 @@ export default class docPouchClient {
      * @returns {Promise<void>}
      */
     async logout(): Promise<void> {
+        const wasOidc = this.authMethod === 'oidc';
         this.authToken = null;
         this.clearOidcTokens();
         this.authMethod = 'none';
@@ -553,6 +554,10 @@ export default class docPouchClient {
         if (typeof window !== 'undefined' && window.location &&
             (window.location.search.includes('code=') || window.location.search.includes('state='))) {
             window.history.replaceState({}, '', window.location.pathname);
+        }
+        if (wasOidc && this.oidcConfig && typeof window !== 'undefined') {
+            const logoutUrl = `${this.oidcConfig.issuer}/session/end?post_logout_redirect_uri=${encodeURIComponent(this.oidcConfig.redirectUri)}`;
+            window.location.href = logoutUrl;
         }
     }
 
