@@ -3,6 +3,8 @@ import packetJson from '../package.json'
 
 /**
  * Client for interacting with docPouch API.
+ * Supports JWT and OIDC authentication with comprehensive logout capabilities.
+ * Provides event emitter functionality for logout events.
  */
 export default class docPouchClient {
     /**
@@ -51,6 +53,13 @@ export default class docPouchClient {
      * @type {boolean}
      */
     private connectionInProgress = false;
+
+    /**
+     * Event emitter for logout events
+     */
+    private events: {
+        [key: string]: (() => void) | undefined;
+    } = {};
 
     /**
      * Creates an instance of docPouchClient.
@@ -475,9 +484,15 @@ export default class docPouchClient {
     }
 
     restoreOidcSession(): boolean {
-        if (typeof window === 'undefined' || !window.localStorage) return false;
         const stored = localStorage.getItem('docpouch_oidc_session');
-        if (!stored) return false;
+        if (!stored) {
+            // If no session, check if user was just logged out
+            if (this.wasJustLoggedOut()) {
+                // User was logged out, emit oidc-logout event
+                this.emit('oidc-logout');
+            }
+            return false;
+        }
         try {
             const session = JSON.parse(stored);
             if (!session.accessToken || Date.now() >= session.expiry) {
@@ -543,10 +558,36 @@ export default class docPouchClient {
     /**
      * Logs out the client, clearing all tokens and disconnecting WebSocket.
      *
+     * @param {LogoutOptions} [options] - Logout options for OIDC logout
      * @returns {Promise<void>}
      */
-    async logout(): Promise<void> {
+    async logout(options?: LogoutOptions): Promise<void> {
         const wasOidc = this.authMethod === 'oidc';
+
+        // For OIDC, redirect to /end_session endpoint
+        if (wasOidc && this.oidcConfig && typeof window !== 'undefined') {
+            const redirectUri = options?.redirectUri || this.oidcConfig.redirectUri || window.location.origin;
+            let url = `${this.oidcConfig.issuer}/end_session?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+            // Add id_token_hint if available
+            const idToken = options?.idTokenHint || this.oidcIdToken;
+            if (idToken) {
+                url += `&id_token_hint=${idToken}`;
+            }
+
+            // Clear tokens before redirect
+            this.authToken = null;
+            this.clearOidcTokens();
+            this.authMethod = 'none';
+            if (this.socket.connected) this.socket.disconnect();
+
+            // Redirect to OIDC logout endpoint
+            window.location.href = url;
+            return;
+        }
+
+        // For JWT or no auth, just clear local state
+        const wasJwt = this.authMethod === 'jwt';
         this.authToken = null;
         this.clearOidcTokens();
         this.authMethod = 'none';
@@ -555,10 +596,127 @@ export default class docPouchClient {
             (window.location.search.includes('code=') || window.location.search.includes('state='))) {
             window.history.replaceState({}, '', window.location.pathname);
         }
-        if (wasOidc && this.oidcConfig && typeof window !== 'undefined') {
-            const logoutUrl = `${this.oidcConfig.issuer}/session/end?post_logout_redirect_uri=${encodeURIComponent(this.oidcConfig.redirectUri)}`;
-            window.location.href = logoutUrl;
+
+        // Emit appropriate logout events
+        if (wasJwt) {
+            this.emit('jwt-logout');
+            this.emit('logout');
+        } else if (!wasOidc) {
+            // No auth case
+            this.emit('logout');
         }
+    }
+
+    /**
+     * Explicitly logout from OIDC provider
+     * Redirects to /end_session endpoint
+     *
+     * @param {LogoutOptions} [options] - Logout options
+     * @returns {Promise<void>}
+     */
+    async logoutOidc(options?: LogoutOptions): Promise<void> {
+        if (this.authMethod !== 'oidc') {
+            throw new Error('Not logged in with OIDC');
+        }
+
+        if (!this.oidcConfig?.issuer) {
+            throw new Error('OIDC issuer not configured');
+        }
+
+        const {redirectUri = this.oidcConfig.redirectUri || window.location.origin, idTokenHint} = options || {};
+
+        let url = `${this.oidcConfig.issuer}/end_session?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+        if (idTokenHint) {
+            url += `&id_token_hint=${idTokenHint}`;
+        } else if (this.oidcIdToken) {
+            url += `&id_token_hint=${this.oidcIdToken}`;
+        }
+
+        // Clear tokens before redirect
+        this.authToken = null;
+        this.clearOidcTokens();
+        this.authMethod = 'none';
+        if (this.socket.connected) this.socket.disconnect();
+
+        // Emit OIDC logout event
+        this.emit('oidc-logout');
+        this.emit('logout');
+
+        window.location.href = url;
+    }
+
+    /**
+     * Logout from JWT (client-side only)
+     *
+     * @returns {Promise<void>}
+     */
+    async logoutJwt(): Promise<void> {
+        if (this.authMethod !== 'jwt') {
+            throw new Error('Not logged in with JWT');
+        }
+
+        this.authToken = null;
+        this.authMethod = 'none';
+        if (this.socket.connected) this.socket.disconnect();
+        if (typeof window !== 'undefined' && window.location &&
+            (window.location.search.includes('code=') || window.location.search.includes('state='))) {
+            window.history.replaceState({}, '', window.location.pathname);
+        }
+
+        // Emit JWT logout event
+        if (this.events['jwt-logout']) {
+            this.events['jwt-logout']!();
+        }
+        if (this.events['logout']) {
+            this.events['logout']!();
+        }
+    }
+
+    /**
+     * Listen for logout events
+     */
+    onLogout(callback: () => void): void {
+        this.events['logout'] = callback;
+    }
+
+    /**
+     * Listen for OIDC logout specifically
+     */
+    onOidcLogout(callback: () => void): void {
+        this.events['oidc-logout'] = callback;
+    }
+
+    /**
+     * Listen for JWT logout specifically
+     */
+    onJwtLogout(callback: () => void): void {
+        this.events['jwt-logout'] = callback;
+    }
+
+    /**
+     * Check if user was just logged out (after redirect from /end_session)
+     * Checks URL for logout indicator or checks localStorage
+     *
+     * @returns {boolean} True if user was just logged out
+     */
+    wasJustLoggedOut(): boolean {
+        // Check URL query parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('logout') === 'true') {
+            return true;
+        }
+
+        // Check localStorage flag
+        const lastAuthMethod = localStorage.getItem('lastAuthMethod');
+        const currentAuthMethod = localStorage.getItem('authMethod');
+
+        // If last was OIDC/JWT but current is none, was logged out
+        if (lastAuthMethod && currentAuthMethod === null) {
+            return true;
+        }
+
+        return false;
     }
 
     // OIDC Dynamic Client Registration Methods
@@ -854,6 +1012,24 @@ export default class docPouchClient {
         crypto.getRandomValues(array);
         return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     }
+
+    /**
+     * Get post_logout_redirect_uri after OIDC logout
+     *
+     * @returns {string | null} The post logout redirect URI or null if not set
+     */
+    getPostLogoutRedirectUri(): string | null {
+        return localStorage.getItem('postLogoutRedirectUri');
+    }
+
+    /**
+     * Emit an event
+     */
+    private emit(event: string): void {
+        if (this.events[event]) {
+            this.events[event]!();
+        }
+    }
 }
 
 // Common type definitions for both frontend and backend
@@ -903,6 +1079,11 @@ export interface I_LoginResponse {
     expiresIn?: number;
 }
 
+export interface LogoutOptions {
+    redirectUri?: string;     // Where to redirect after OIDC logout (default: app root)
+    idTokenHint?: string;     // Optional ID token hint for logout confirmation
+}
+
 export interface I_OidcConfig {
     issuer: string;
     clientId: string;
@@ -910,6 +1091,7 @@ export interface I_OidcConfig {
     scope?: string;
     scopes?: string[];
     clientSecret?: string;
+    postLogoutRedirectUri?: string;  // NEW: Post logout redirect URI
 }
 
 export interface I_OidcTokenResponse {
