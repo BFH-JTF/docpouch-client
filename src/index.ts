@@ -1159,6 +1159,7 @@ export interface I_DocumentCreation {
     shareWithGroup: boolean;
     shareWithDepartment: boolean;
     public: boolean;
+    anonymous?: boolean;  // NEW: Optional flag for anonymous documents
 }
 
 

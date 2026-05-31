@@ -166,27 +166,17 @@ const newDocument = await client.createDocument({
     public: false
 });
 
-// Update a document
-await client.updateDocument('document-id', {
-    _id: 'document-id',
-    owner: 'user-id',
-    title: 'Updated Mission Statement',
+// Create an anonymous document
+const anonymousDocument = await client.createDocument({
+    title: 'Anonymous Feedback',
     type: 17,
     subType: 11,
-    content: '{"msg": "Our updated mission..."}',
+    content: '{"msg": "This is anonymous feedback"}',
     shareWithGroup: false,
     shareWithDepartment: false,
-    public: false
+    public: false,
+    anonymous: true  // Document will be owned by admin user
 });
-
-// Delete a document
-await client.removeDocument('document-id');
-
-// List all documents
-const allDocuments = await client.listDocuments();
-
-// Fetch documents by query
-const documents = await client.fetchDocuments({type: 17, subType: 11});
 ```
 
 ### Data Structure Management
@@ -502,6 +492,7 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
     shareWithGroup: boolean;
     shareWithDepartment: boolean;
     public: boolean;
+    anonymous?: boolean;  // If true, document will be owned by admin user
 }
 ```
 
@@ -518,6 +509,7 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
     shareWithGroup: boolean;
     shareWithDepartment: boolean;
     public: boolean;
+    anonymous?: boolean;  // If true, document will be owned by admin user (owner field will be overridden)
 }
 ```
 

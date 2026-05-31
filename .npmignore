@@ -1,0 +1,24 @@
+# Source files
+src/
+tests/
+
+# Config files
+tsconfig.json
+tsconfig.build.json
+jest.config.cjs
+
+# Random/temp files
+chat-*.txt
+hff
+
+# Git and IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+
+# Lock files
+package-lock.json
