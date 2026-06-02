@@ -576,11 +576,11 @@ export default class docPouchClient {
                 url += `&id_token_hint=${idToken}`;
             }
 
-            // Clear tokens before redirect
-            this.authToken = null;
-            this.clearOidcTokens();
-            this.authMethod = 'none';
-            if (this.socket.connected) this.socket.disconnect();
+            // DO NOT clear tokens before redirect - wait for redirect back to determine actual logout status
+            // Instead, set a flag to indicate we're in logout process
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                sessionStorage.setItem('docpouch_logout_in_progress', 'true');
+            }
 
             // Redirect to OIDC logout endpoint
             window.location.href = url;
@@ -637,11 +637,11 @@ export default class docPouchClient {
             url += `&id_token_hint=${this.oidcIdToken}`;
         }
 
-        // Clear tokens before redirect
-        this.authToken = null;
-        this.clearOidcTokens();
-        this.authMethod = 'none';
-        if (this.socket.connected) this.socket.disconnect();
+        // DO NOT clear tokens before redirect - wait for redirect back to determine actual logout status
+        // Instead, set a flag to indicate we're in logout process
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            sessionStorage.setItem('docpouch_logout_in_progress', 'true');
+        }
 
         // Emit OIDC logout event
         this.emit('oidc-logout');
@@ -705,21 +705,74 @@ export default class docPouchClient {
      * @returns {boolean} True if user was just logged out
      */
     wasJustLoggedOut(): boolean {
-        // Check URL query parameter
+        // Check if we're in the middle of a logout process
+        const logoutInProgress = typeof window !== 'undefined' && window.sessionStorage
+            ? sessionStorage.getItem('docpouch_logout_in_progress') === 'true'
+            : false;
+
+        if (!logoutInProgress) {
+            return false;
+        }
+
+        // Check URL query parameters for logout confirmation
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('logout') === 'true') {
+        const logoutParam = urlParams.get('logout');
+
+        // If logout parameter is explicitly 'no', user cancelled
+        if (logoutParam === 'no') {
+            // Clear the logout in progress flag
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                sessionStorage.removeItem('docpouch_logout_in_progress');
+            }
+            return false;
+        }
+
+        // If logout parameter is 'yes' or 'true', user confirmed logout
+        if (logoutParam === 'yes' || logoutParam === 'true') {
+            // Clear the logout in progress flag
+            if (typeof window !== 'undefined' && window.sessionStorage) {
+                sessionStorage.removeItem('docpouch_logout_in_progress');
+            }
+            // Clear tokens as user confirmed logout
+            this.authToken = null;
+            this.clearOidcTokens();
+            this.authMethod = 'none';
+            if (this.socket.connected) this.socket.disconnect();
             return true;
         }
 
-        // Check localStorage flag
-        const lastAuthMethod = localStorage.getItem('lastAuthMethod');
-        const currentAuthMethod = localStorage.getItem('authMethod');
-
-        // If last was OIDC/JWT but current is none, was logged out
-        if (lastAuthMethod && currentAuthMethod === null) {
-            return true;
+        // If no logout parameter but we were in logout process, 
+        // check if OIDC provider sent us back without confirmation
+        // This could happen if there was an error or user cancelled in another way
+        if (logoutParam === null) {
+            // Check if this is a post-logout redirect - assume logout was successful
+            // unless there's an error parameter
+            const errorParam = urlParams.get('error');
+            if (!errorParam) {
+                // Clear the logout in progress flag
+                if (typeof window !== 'undefined' && window.sessionStorage) {
+                    sessionStorage.removeItem('docpouch_logout_in_progress');
+                }
+                // Clear tokens
+                this.authToken = null;
+                this.clearOidcTokens();
+                this.authMethod = 'none';
+                if (this.socket.connected) this.socket.disconnect();
+                return true;
+            } else {
+                // There was an error, assume logout was cancelled
+                // Clear the logout in progress flag
+                if (typeof window !== 'undefined' && window.sessionStorage) {
+                    sessionStorage.removeItem('docpouch_logout_in_progress');
+                }
+                return false;
+            }
         }
 
+        // Default case - clear the flag to prevent stuck state
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            sessionStorage.removeItem('docpouch_logout_in_progress');
+        }
         return false;
     }
 
