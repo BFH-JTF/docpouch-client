@@ -566,7 +566,8 @@ export default class docPouchClient {
 
         // For OIDC, redirect to /end_session endpoint
         if (wasOidc && this.oidcConfig && typeof window !== 'undefined') {
-            const redirectUri = options?.redirectUri || this.oidcConfig.redirectUri || window.location.origin;
+            // Use postLogoutRedirectUri if available, otherwise fallback to redirectUri
+            const redirectUri = options?.redirectUri || this.oidcConfig.postLogoutRedirectUri || this.oidcConfig.redirectUri || window.location.origin;
             let url = `${this.oidcConfig.issuer}/end_session?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`;
 
             // Add id_token_hint if available
@@ -623,7 +624,10 @@ export default class docPouchClient {
             throw new Error('OIDC issuer not configured');
         }
 
-        const {redirectUri = this.oidcConfig.redirectUri || window.location.origin, idTokenHint} = options || {};
+        const {
+            redirectUri = this.oidcConfig.postLogoutRedirectUri || this.oidcConfig.redirectUri || window.location.origin,
+            idTokenHint
+        } = options || {};
 
         let url = `${this.oidcConfig.issuer}/end_session?post_logout_redirect_uri=${encodeURIComponent(redirectUri)}`;
 
@@ -1112,6 +1116,7 @@ export interface I_OidcUserInfo {
 export interface I_OidcClientRegistration {
     client_name: string;
     redirect_uris: string[];
+    post_logout_redirect_uris?: string[];  // NEW: Support for post-logout redirect URIs
     grant_types?: string[];
     response_types?: string[];
     scope?: string;
@@ -1132,6 +1137,7 @@ export interface I_OidcClientResponse {
     registration_client_uri?: string;
     client_name?: string;
     redirect_uris?: string[];
+    post_logout_redirect_uris?: string[];  // NEW: Support for post-logout redirect URIs
     grant_types?: string[];
     response_types?: string[];
     scope?: string;
