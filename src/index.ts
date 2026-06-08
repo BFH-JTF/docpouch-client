@@ -14,6 +14,18 @@ export default class docPouchClient {
      */
     baseUrl: string;
     /**
+     * The port number to use for HTTP and WebSocket connections when the
+     * base URL does not already include an explicit port. Stored from
+     * the constructor argument so the {@link request} method can
+     * build full URLs (e.g. for the OIDC dynamic client registration
+     * endpoint at `/oidc/reg`) even when the caller passes a host
+     * without a port. A port that already appears in the base URL
+     * takes precedence.
+     *
+     * @type {number}
+     */
+    port: number;
+    /**
      * Socket.IO socket instance for real-time communication with the server.
      *
      * @type {Socket}
@@ -64,12 +76,19 @@ export default class docPouchClient {
     /**
      * Creates an instance of docPouchClient.
      *
-     * @param {string} host - The base URL for the server.
-     * @param {number} [port=80] - The port number to connect to (default is 80).
+     * @param {string} host - The base URL for the server. May be a bare
+     *   host (`http://localhost`), a host with an explicit port
+     *   (`http://localhost:3030`), or a full URL with a path. When the
+     *   value does not already contain a port number, the supplied
+     *   `port` argument is appended to every HTTP request built by
+     *   {@link request} (in addition to the WebSocket connection).
+     * @param {number} [port=80] - The port number to use when the
+     *   `host` does not already specify one (default is 80).
      * @param {(event: I_EventString, data: I_WsMessage) => void} [callback] - Optional callback function for socket events.
      */
     constructor(host: string, port: number = 80, callback?: (event: I_EventString, data: I_WsMessage) => void) {
         this.baseUrl = host;
+        this.port = port;
         const socketUrl = host.includes('://') ? host : `https://${host}`;
         const socketUrlWithPort = socketUrl.includes(':') && !socketUrl.endsWith(':')
             ? socketUrl
@@ -955,7 +974,16 @@ export default class docPouchClient {
         };
 
         const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-        const normalizedBaseUrl = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+        const trimmedBaseUrl = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+        // If the caller's `host` already includes a port (e.g.
+        // `http://localhost:3030`) we must not append `this.port` or
+        // the URL would end up like `http://localhost:3030:3030` or
+        // `http://localhost:3030:80`. Only fall back to the constructor
+        // `port` argument when the URL has no port of its own.
+        const hasExplicitPort = /:\d+(?=\/|$)/.test(trimmedBaseUrl);
+        const normalizedBaseUrl = !hasExplicitPort && this.port
+            ? `${trimmedBaseUrl}:${this.port}`
+            : trimmedBaseUrl;
         const url = `${normalizedBaseUrl}${normalizedEndpoint}`;
         const response = await fetch(url, options);
 
