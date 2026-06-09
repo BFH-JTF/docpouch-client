@@ -79,6 +79,156 @@ describe('constructor', () => {
   });
 });
 
+// ─── Port handling in request URLs ─────────────────────────────
+//
+// Regression: the second constructor argument (`port`) used to be
+// consulted only when building the WebSocket connection. HTTP
+// requests built by `request()` used `this.baseUrl` verbatim, so
+// passing `new docPouchClient('http://localhost', 3030, ...)` would
+// POST to `http://localhost/oidc/reg` (port 80) instead of
+// `http://localhost:3030/oidc/reg`. These tests pin the fix.
+
+describe('port handling in request URLs', () => {
+    let originalFetch: typeof globalThis.fetch;
+    let capturedUrls: string[];
+
+    beforeEach(() => {
+        capturedUrls = [];
+        originalFetch = globalThis.fetch;
+        // Stub fetch so we can inspect the URLs without needing a live
+        // server. Each call resolves with a minimal 200 OK JSON
+        // response that satisfies the OIDC discovery/registration
+        // contracts the client actually consumes here.
+        globalThis.fetch = (async (url: any, _options?: any) => {
+            capturedUrls.push(typeof url === 'string' ? url : url.toString());
+            return {
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                json: async () => ({}),
+            } as any;
+        }) as any;
+    });
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    it('appends the port to the base URL when the host has no port', async () => {
+        const client = new docPouchClient('http://localhost', 3030);
+
+        // Trigger a real HTTP request by calling the public register
+        // method (which only needs the OIDC registration token and a
+        // network round trip, not a real DocPouch server).
+        await client.registerOidcClient(
+            {
+                client_name: 'test',
+                redirect_uris: ['http://localhost/cb'],
+                post_logout_redirect_uris: ['http://localhost/cb'],
+                response_types: ['code'],
+                grant_types: ['authorization_code'],
+                token_endpoint_auth_method: 'none',
+                application_type: 'web',
+            },
+            'token-xyz'
+        );
+
+        expect(capturedUrls.length).toBeGreaterThan(0);
+        // Note: assert against the raw URL string, not `new URL(...)`,
+        // because the URL parser strips the default port (80) on its own
+        // and we want to verify what the client actually passed to
+        // `fetch()` rather than what the URL parser normalizes it to.
+        expect(capturedUrls[0]).toBe('http://localhost:3030/oidc/reg');
+    });
+
+    it('does not append the port when the host already has one', async () => {
+        const client = new docPouchClient('http://localhost:3030', 3030);
+
+        await client.registerOidcClient(
+            {
+                client_name: 'test',
+                redirect_uris: ['http://localhost/cb'],
+                post_logout_redirect_uris: ['http://localhost/cb'],
+                response_types: ['code'],
+                grant_types: ['authorization_code'],
+                token_endpoint_auth_method: 'none',
+                application_type: 'web',
+            },
+            'token-xyz'
+        );
+
+        expect(capturedUrls.length).toBeGreaterThan(0);
+        expect(capturedUrls[0]).toBe('http://localhost:3030/oidc/reg');
+    });
+
+    it('prefers the host port over the constructor port argument', async () => {
+        // Mismatched port: the host has 8080 but the constructor
+        // argument is 3030. The host's port must win so existing
+        // callers that put the port in the URL keep working.
+        const client = new docPouchClient('http://localhost:8080', 3030);
+
+        await client.registerOidcClient(
+            {
+                client_name: 'test',
+                redirect_uris: ['http://localhost/cb'],
+                post_logout_redirect_uris: ['http://localhost/cb'],
+                response_types: ['code'],
+                grant_types: ['authorization_code'],
+                token_endpoint_auth_method: 'none',
+                application_type: 'web',
+            },
+            'token-xyz'
+        );
+
+        expect(capturedUrls.length).toBeGreaterThan(0);
+        expect(capturedUrls[0]).toBe('http://localhost:8080/oidc/reg');
+    });
+
+    it('uses the default port (80) when the constructor port is omitted and the host has no port', async () => {
+        const client = new docPouchClient('http://localhost');
+
+        await client.registerOidcClient(
+            {
+                client_name: 'test',
+                redirect_uris: ['http://localhost/cb'],
+                post_logout_redirect_uris: ['http://localhost/cb'],
+                response_types: ['code'],
+                grant_types: ['authorization_code'],
+                token_endpoint_auth_method: 'none',
+                application_type: 'web',
+            },
+            'token-xyz'
+        );
+
+        expect(capturedUrls.length).toBeGreaterThan(0);
+        // The client appends :80 because that's the default port for the
+        // http:// scheme. The URL parser would normalize that away when
+        // re-parsing the URL, so we check the raw string here.
+        expect(capturedUrls[0]).toBe('http://localhost:80/oidc/reg');
+    });
+
+    it('strips a trailing slash from the base URL before appending the endpoint', async () => {
+        const client = new docPouchClient('http://localhost:3030/', 3030);
+
+        await client.registerOidcClient(
+            {
+                client_name: 'test',
+                redirect_uris: ['http://localhost/cb'],
+                post_logout_redirect_uris: ['http://localhost/cb'],
+                response_types: ['code'],
+                grant_types: ['authorization_code'],
+                token_endpoint_auth_method: 'none',
+                application_type: 'web',
+            },
+            'token-xyz'
+        );
+
+        expect(capturedUrls.length).toBeGreaterThan(0);
+        // No double slash between the base URL and the endpoint.
+        expect(capturedUrls[0]).toBe('http://localhost:3030/oidc/reg');
+    });
+});
+
 // ─── Authentication ─────────────────────────────────────────────
 
 describe('authentication', () => {
