@@ -1120,6 +1120,287 @@ export default class docPouchClient {
             this.events[event]!();
         }
     }
+
+    // Convenience OIDC methods
+
+    /**
+     * Fetches the OIDC client configuration from the server's
+     * `/api/oidc-client-config` endpoint. This is the first step in any
+     * OIDC flow: call this method to discover whether OIDC is configured
+     * and, if so, obtain the issuer, clientId, redirectUri, etc.
+     *
+     * The returned object matches the {@link I_OidcClientConfig} shape which
+     * can be passed directly to {@link setOidcConfig} or
+     * {@link loginWithOidc}.
+     *
+     * @returns {Promise<I_OidcClientConfig | null>} The client config if
+     *   OIDC is configured, or null if the server reports OIDC is not
+     *   available.
+     */
+    async fetchOidcClientConfig(): Promise<I_OidcClientConfig | null> {
+        try {
+            const data = await this.request<I_OidcClientConfig>('/api/oidc-client-config', 'GET', undefined, false);
+            if (!data) return null;
+            // The server may or may not include `configured`. If it has an
+            // `issuer` field we consider it valid regardless.
+            if (data.configured === false) return null;
+            if (!data.issuer) return null;
+            return data;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Fetches the currently authenticated user's profile from the
+     * `/users/whoami` endpoint. Works with both JWT and OIDC
+     * authentication — the correct token is sent automatically.
+     *
+     * @returns {Promise<I_UserEntry | null>} The user profile, or null
+     *   if the request fails or the user is not authenticated.
+     */
+    async getCurrentUser(): Promise<I_UserEntry | null> {
+        try {
+            return await this.request<I_UserEntry>('/users/whoami', 'GET');
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Ensures an OIDC client is registered with the DocPouch server
+     * (dynamic client registration). If a `clientId` is found in
+     * localStorage under `docpouch_oidc_client_id`, it attempts to
+     * update the existing registration. If that fails (or no stored ID
+     * exists), a new client is registered via
+     * {@link registerOidcClient}.
+     *
+     * This method manages the `docpouch_oidc_client_id` localStorage
+     * key automatically. Call it before {@link loginWithOidc} when
+     * acting as a third-party relying party (i.e. not the built-in
+     * admin UI).
+     *
+     * @param {string} redirectUri - The URI the IdP should redirect to
+     *   after login.
+     * @param {string} [registrationToken] - Initial access token for
+     *   the `/oidc/reg` endpoint. If omitted the current auth token is
+     *   used.
+     * @param {object} [options] - Additional options.
+     * @param {string} [options.clientName] - Display name for the
+     *   client registration (default `'DocPouch Client'`).
+     * @param {string} [options.postLogoutRedirectUri] - If provided,
+     *   also registers this URI as a post-logout redirect.
+     * @returns {Promise<string>} The resolved clientId.
+     */
+    async ensureOidcClient(redirectUri: string, registrationToken?: string, options?: {
+        clientName?: string;
+        postLogoutRedirectUri?: string;
+    }): Promise<string> {
+        const clientName = options?.clientName || 'DocPouch Client';
+        const postLogoutRedirectUri = options?.postLogoutRedirectUri;
+
+        const storedClientId = typeof window !== 'undefined' && window.localStorage
+            ? localStorage.getItem('docpouch_oidc_client_id')
+            : null;
+
+        const postLogoutUris = postLogoutRedirectUri
+            ? [redirectUri, postLogoutRedirectUri]
+            : [redirectUri];
+
+        const payload: I_OidcClientRegistration = {
+            client_name: clientName,
+            redirect_uris: [redirectUri],
+            post_logout_redirect_uris: postLogoutUris,
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+            token_endpoint_auth_method: 'none',
+            application_type: 'web',
+        };
+
+        if (storedClientId) {
+            try {
+                await this.updateOidcClient(storedClientId, payload, registrationToken);
+                return storedClientId;
+            } catch {
+                // Update failed, will re-register below
+            }
+        }
+
+        const response = await this.registerOidcClient(payload, registrationToken);
+        if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.setItem('docpouch_oidc_client_id', response.client_id);
+        }
+        if (response.registration_access_token && typeof window !== 'undefined' && window.localStorage) {
+            localStorage.setItem('docpouch_registration_token', response.registration_access_token);
+        }
+        return response.client_id;
+    }
+
+    /**
+     * Attempts to restore an existing authentication session (JWT or
+     * OIDC) from browser storage. This is the recommended entry point
+     * on page load:
+     *
+     * 1. If an OIDC logout redirect was just completed, clears local
+     *    state and returns `{method: 'none'}`.
+     * 2. If the URL contains `code` and `state` params, exchanges them
+     *    for OIDC tokens via {@link handleOidcCallback}.
+     * 3. If a persisted OIDC session exists, restores it.
+     * 4. Falls back to a JWT token in localStorage.
+     *
+     * @returns {Promise<I_AuthState>} The authentication state after
+     *   attempting restoration.
+     */
+    async initAuth(): Promise<I_AuthState> {
+        // 1. Check for logout redirect
+        if (this.wasJustLoggedOut()) {
+            this.authToken = null;
+            this.clearOidcTokens();
+            this.authMethod = 'none';
+            this.clearPersistedAuthState();
+            return {method: 'none', token: null, isAdmin: false, userName: ''};
+        }
+
+        // 2. Try OIDC callback (code/state in URL)
+        try {
+            const handled = await this.handleOidcCallback();
+            if (handled) {
+                const token = this.getToken();
+                if (token) {
+                    this.persistAuthMethod('oidc');
+                    return {method: 'oidc', token, isAdmin: false, userName: ''};
+                }
+            }
+        } catch (e) {
+            console.error('OIDC callback error:', e);
+        }
+
+        // 3. Try OIDC session restore
+        if (this.restoreOidcSession()) {
+            const token = this.getToken();
+            if (token) {
+                this.persistAuthMethod('oidc');
+                return {method: 'oidc', token, isAdmin: false, userName: ''};
+            }
+        }
+
+        // 4. Fallback to JWT token
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const storedToken = localStorage.getItem('authToken');
+            if (storedToken) {
+                this.authToken = storedToken;
+                this.authMethod = 'jwt';
+                return {method: 'jwt', token: storedToken, isAdmin: false, userName: ''};
+            }
+        }
+
+        return {method: 'none', token: null, isAdmin: false, userName: ''};
+    }
+
+    /**
+     * Clears all local authentication state — JWT token, OIDC tokens,
+     * persisted sessions, and localStorage keys managed by this library.
+     * Disconnects the WebSocket if connected.
+     *
+     * This does NOT redirect to an OIDC end-session endpoint. For a
+     * full RP-initiated logout use {@link logout} or
+     * {@link logoutOidc}.
+     */
+    clearAuth(): void {
+        this.authToken = null;
+        this.clearOidcTokens();
+        this.authMethod = 'none';
+        if (this.socket.connected) {
+            this.socket.disconnect();
+        }
+        this.clearPersistedAuthState();
+    }
+
+    /**
+     * Persists the current authentication method to localStorage so it
+     * can be restored after a page reload.
+     *
+     * @param {'jwt' | 'oidc'} method - The auth method to persist.
+     */
+    persistAuthMethod(method: 'jwt' | 'oidc'): void {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.setItem('authMethod', method);
+        }
+    }
+
+    /**
+     * Removes all localStorage keys managed by docpouch-client:
+     * `authToken`, `authMethod`, `docpouch_oidc_session`,
+     * `docpouch_oidc_client_id`, `docpouch_registration_token`,
+     * `isAdmin`, and `postLogoutRedirectUri`.
+     */
+    clearPersistedAuthState(): void {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('authMethod');
+            localStorage.removeItem('docpouch_oidc_session');
+            localStorage.removeItem('docpouch_oidc_client_id');
+            localStorage.removeItem('docpouch_registration_token');
+            localStorage.removeItem('isAdmin');
+            localStorage.removeItem('postLogoutRedirectUri');
+        }
+    }
+
+    /**
+     * Convenience method to fetch the OIDC client config from the server
+     * and immediately initiate the OIDC login redirect. This combines
+     * {@link fetchOidcClientConfig} and {@link loginWithOidc} into a
+     * single call.
+     *
+     * @param {string} [registrationToken] - Optional initial access
+     *   token for dynamic client registration. If provided and no
+     *   client config is available from the server, the method attempts
+     *   dynamic registration via {@link ensureOidcClient}.
+     * @returns {Promise<void>}
+     */
+    async startOidcLogin(registrationToken?: string): Promise<void> {
+        let config = this.oidcConfig;
+        if (!config) {
+            config = await this.fetchOidcClientConfig();
+        }
+        if (!config && registrationToken) {
+            const redirectUri = typeof window !== 'undefined'
+                ? window.location.origin + window.location.pathname
+                : '';
+            const clientId = await this.ensureOidcClient(redirectUri, registrationToken, {
+                postLogoutRedirectUri: redirectUri,
+            });
+            const issuer = this.getOidcIssuer();
+            config = {
+                issuer,
+                clientId,
+                redirectUri,
+                postLogoutRedirectUri: redirectUri,
+                scope: 'openid profile email offline_access',
+            };
+        }
+        if (!config) {
+            throw new Error('OIDC is not configured on this server');
+        }
+        this.setOidcConfig(config);
+        await this.loginWithOidc(config);
+    }
+
+    /**
+     * Derives the OIDC issuer URL from the client's baseUrl. By
+     * convention the DocPouch OIDC provider is mounted at
+     * `${baseUrl}/oidc`.
+     *
+     * @returns {string} The issuer URL.
+     */
+    getOidcIssuer(): string {
+        const trimmedBaseUrl = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+        const hasExplicitPort = /:\d+(?=\/|$)/.test(trimmedBaseUrl);
+        const normalizedBaseUrl = !hasExplicitPort && this.port
+            ? `${trimmedBaseUrl}:${this.port}`
+            : trimmedBaseUrl;
+        return `${normalizedBaseUrl}/oidc`;
+    }
 }
 
 // Common type definitions for both frontend and backend
@@ -1182,6 +1463,11 @@ export interface I_OidcConfig {
     scopes?: string[];
     clientSecret?: string;
     postLogoutRedirectUri?: string;  // NEW: Post logout redirect URI
+}
+
+export interface I_OidcClientConfig extends I_OidcConfig {
+    configured?: boolean;
+    apiBaseUrl?: string;
 }
 
 export interface I_OidcTokenResponse {
