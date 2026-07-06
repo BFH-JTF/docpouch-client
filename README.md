@@ -12,6 +12,9 @@ Supports JWT and OIDC (OpenID Connect) authentication.
     - [JWT Authentication](#jwt-authentication)
     - [OIDC Authentication](#oidc-authentication)
     - [OIDC Dynamic Client Registration](#oidc-dynamic-client-registration)
+  - [Session Management & Auth State](#session-management--auth-state)
+  - [Event-Driven Logout](#event-driven-logout)
+  - [Convenience OIDC Methods](#convenience-oidc-methods)
     - [User Management](#user-management)
     - [Document Management](#document-management)
     - [Data Structure Management](#data-structure-management)
@@ -87,6 +90,13 @@ await client.loginWithOidc({
     scopes: ['openid', 'profile', 'email']
 });
 
+// Set OIDC config after a page reload (before handling the callback)
+client.setOidcConfig({
+    issuer: 'https://your-oidc-provider.com',
+    clientId: 'your-client-id',
+    redirectUri: 'https://yourapp.com/callback'
+});
+
 // Handle the OIDC callback on your redirect page
 const handled = await client.handleOidcCallback();
 if (handled) {
@@ -96,8 +106,22 @@ if (handled) {
 // The access token is automatically refreshed when needed
 const validToken = await client.ensureValidOidcToken();
 
-// Log out (clears tokens, disconnects WebSocket, cleans up URL params)
+// Log out (for OIDC, redirects to the end-session endpoint)
 await client.logout();
+
+// Log out with custom redirect URI and ID token hint
+await client.logout({
+    redirectUri: 'https://yourapp.com/logged-out',
+    idTokenHint: 'id-token-from-login'
+});
+
+// Explicit OIDC logout (throws if not authenticated via OIDC)
+await client.logoutOidc({
+    redirectUri: 'https://yourapp.com/logged-out'
+});
+
+// Client-side-only JWT logout (throws if not authenticated via JWT)
+await client.logoutJwt();
 ```
 
 ### OIDC Dynamic Client Registration
@@ -123,6 +147,88 @@ await client.updateOidcClient('client-id', {
 
 // Delete a client registration
 await client.deleteOidcClient('client-id');
+```
+
+### Session Management & Auth State
+
+```typescript
+// On page load, restore the authentication state automatically.
+// This is the recommended entry point for applications:
+const authState = await client.initAuth();
+// authState: { method: 'jwt' | 'oidc' | 'none', token: string | null, isAdmin: boolean, userName: string }
+
+if (authState.method === 'none') {
+    // No active session — show login page
+} else {
+    // Session restored — proceed with authenticated UI
+    console.log(`Authenticated via ${authState.method}`);
+}
+
+// Manually persist the current auth method to localStorage
+client.persistAuthMethod('oidc');
+
+// Clear all local auth state without redirecting to an OIDC end-session endpoint
+client.clearAuth();
+
+// Check whether the user just returned from an OIDC logout redirect
+if (client.wasJustLoggedOut()) {
+    console.log('User logged out via OIDC provider');
+}
+
+// Manually restore an OIDC session from localStorage
+const restored = client.restoreOidcSession();
+```
+
+### Event-Driven Logout
+
+```typescript
+// Listen for any logout event (JWT or OIDC)
+client.onLogout(() => {
+    console.log('User logged out');
+    // Redirect to login page, update UI, etc.
+});
+
+// Listen specifically for OIDC logout
+client.onOidcLogout(() => {
+    console.log('OIDC session ended');
+});
+
+// Listen specifically for JWT logout
+client.onJwtLogout(() => {
+    console.log('JWT session ended');
+});
+```
+
+### Convenience OIDC Methods
+
+```typescript
+// Fetch the OIDC client config from the server
+const config = await client.fetchOidcClientConfig();
+if (config) {
+    console.log(`OIDC available at ${config.issuer}`);
+}
+
+// Fetch the currently authenticated user's profile
+const user = await client.getCurrentUser();
+if (user) {
+    console.log(`Hello, ${user.name}`);
+}
+
+// Ensure an OIDC client is registered (auto-registers if needed)
+const clientId = await client.ensureOidcClient(
+    'https://yourapp.com/callback',
+    undefined,  // optional registration token
+    { clientName: 'My App', postLogoutRedirectUri: 'https://yourapp.com/' }
+);
+
+// One-call OIDC login: fetches config (or registers client) and redirects
+await client.startOidcLogin('optional-registration-token');
+
+// Derive the OIDC issuer from the client's baseUrl
+const issuer = client.getOidcIssuer();
+
+// Get the post-logout redirect URI stored in localStorage
+const uri = client.getPostLogoutRedirectUri();
 ```
 
 ### User Management
@@ -263,7 +369,10 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
 - `getToken(): string | null` — Returns the active token (JWT or OIDC)
 - `getAuthMethod(): 'jwt' | 'oidc' | 'none'` — Returns current auth method
 - `isAuthenticated(): boolean` — Checks if the client is authenticated
-- `logout(): Promise<void>` — Clears all tokens and disconnects WebSocket
+- `logout(options?: LogoutOptions): Promise<void>` — Clears all tokens and disconnects WebSocket; for OIDC, redirects to
+  the end-session endpoint
+- `logoutOidc(options?: LogoutOptions): Promise<void>` — Explicit OIDC logout (redirects to /end_session)
+- `logoutJwt(): Promise<void>` — Client-side-only JWT logout
 - `getVersion(): string` — Returns the package version
 
 **OIDC Authentication**
@@ -271,6 +380,31 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
 - `loginWithOidc(config: I_OidcConfig): Promise<void>` — Initiates OIDC authorization code flow (PKCE)
 - `handleOidcCallback(): Promise<boolean>` — Handles the OIDC redirect callback
 - `ensureValidOidcToken(): Promise<string>` — Returns a valid OIDC access token, refreshing if needed
+- `setOidcConfig(config: I_OidcConfig): void` — Sets the OIDC configuration for callback handling (use after page
+  reload)
+- `fetchOidcClientConfig(): Promise<I_OidcClientConfig | null>` — Fetches OIDC client config from the server
+-
+`ensureOidcClient(redirectUri: string, registrationToken?: string, options?: { clientName?: string; postLogoutRedirectUri?: string }): Promise<string>` —
+Auto-registers or updates an OIDC client
+- `startOidcLogin(registrationToken?: string): Promise<void>` — Convenience method: fetches config and initiates OIDC
+  login
+- `getOidcIssuer(): string` — Derives the OIDC issuer URL from the client's baseUrl
+- `getPostLogoutRedirectUri(): string | null` — Returns the stored post-logout redirect URI
+
+**Session Management**
+
+- `initAuth(): Promise<I_AuthState>` — Restores authentication state (JWT/OIDC) on page load; recommended entry point
+- `clearAuth(): void` — Clears all local auth state without OIDC redirect
+- `restoreOidcSession(): boolean` — Restores OIDC session from localStorage
+- `wasJustLoggedOut(): boolean` — Checks if user just returned from an OIDC logout redirect
+- `persistAuthMethod(method: 'jwt' | 'oidc'): void` — Persists auth method to localStorage
+- `clearPersistedAuthState(): void` — Removes all docpouch localStorage keys
+
+**Event-Driven Logout**
+
+- `onLogout(callback: () => void): void` — Listen for any logout event
+- `onOidcLogout(callback: () => void): void` — Listen for OIDC-specific logout
+- `onJwtLogout(callback: () => void): void` — Listen for JWT-specific logout
 
 **OIDC Dynamic Client Registration**
 
@@ -387,8 +521,31 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
     issuer: string;
     clientId: string;
     redirectUri: string;
+    scope?: string;
     scopes?: string[];
     clientSecret?: string;
+    postLogoutRedirectUri?: string;
+}
+```
+
+### I_OidcClientConfig
+
+Extends `I_OidcConfig` with:
+
+```typescript
+{
+    ...I_OidcConfig;
+    configured?: boolean;
+    apiBaseUrl?: string;
+}
+```
+
+### LogoutOptions
+
+```typescript
+{
+    redirectUri?: string;     // Where to redirect after OIDC logout (default: app root)
+    idTokenHint?: string;     // Optional ID token hint for logout confirmation
 }
 ```
 
@@ -421,6 +578,7 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
 {
     client_name: string;
     redirect_uris: string[];
+    post_logout_redirect_uris?: string[];
     grant_types?: string[];
     response_types?: string[];
     scope?: string;
@@ -445,6 +603,7 @@ Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
     registration_client_uri?: string;
     client_name?: string;
     redirect_uris?: string[];
+    post_logout_redirect_uris?: string[];
     grant_types?: string[];
     response_types?: string[];
     scope?: string;
