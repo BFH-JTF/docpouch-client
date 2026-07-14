@@ -1273,6 +1273,15 @@ export default class docPouchClient {
             }
         } catch (e) {
             console.error('OIDC callback error:', e);
+            // Clean up URL: remove leftover code/state params so they
+            // don't trigger another failed attempt on reload.
+            if (typeof window !== 'undefined' && window.location &&
+                (window.location.search.includes('code=') || window.location.search.includes('state='))) {
+                window.history.replaceState({}, '', window.location.pathname);
+            }
+            // A failed OIDC callback means the flow is invalid; clear any
+            // stale OIDC session so restoreOidcSession() won't restore it.
+            this.clearOidcTokens();
         }
 
         // 3. Try OIDC session restore
