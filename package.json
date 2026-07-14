@@ -33,7 +33,7 @@
     "jest": "^30.4.2",
     "socket.io": "^4.8.3",
     "ts-jest": "^29.4.10",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "socket.io-client": "^4.8.3"
