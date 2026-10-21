@@ -217,6 +217,33 @@ export function createMockServer(): Promise<MockServer> {
     next();
   }
 
+    const PROTECTION_ROLE_RANKS: Record<string, number> = {
+        member: 0,
+        manager: 1,
+        admin: 2,
+        superadmin: 3,
+    };
+
+    function effectiveRoleRank(session: MockSession): number {
+        if (session.isAdmin) return PROTECTION_ROLE_RANKS.superadmin;
+        return PROTECTION_ROLE_RANKS[session.role ?? ''] ?? 0;
+    }
+
+    function minRoleRank(minRole: I_ProtectionRole): number {
+        return PROTECTION_ROLE_RANKS[minRole];
+    }
+
+    function protectedStructureMinRole(type: number, subType: number): I_ProtectionRole | undefined {
+        const rule = Array.from(protectedStructures.values())
+            .find(r => r.type === type && r.subType === subType);
+        return rule?.minRole;
+    }
+
+    function rejectsByRole(session: MockSession, type: number, subType: number): boolean {
+        const minRole = protectedStructureMinRole(type, subType);
+        return minRole !== undefined && effectiveRoleRank(session) < minRoleRank(minRole);
+    }
+
   function getTokenSession(token: string): MockSession | undefined {
     return sessions.get(token);
   }
@@ -362,6 +389,9 @@ export function createMockServer(): Promise<MockServer> {
 
   // Document endpoints
   app.post('/docs/create', authMiddleware, (req: any, res: any) => {
+      if (rejectsByRole(req.session, req.body.type, req.body.subType)) {
+          return res.status(403).json({error: 'ROLE_REQUIRED_FOR_STRUCTURE'});
+      }
     const owner = req.session.userId;
     const _id = generateId();
     const doc: MockDocument = {
@@ -413,6 +443,9 @@ export function createMockServer(): Promise<MockServer> {
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
+      if (rejectsByRole(req.session, doc.type, doc.subType)) {
+          return res.status(403).json({error: 'ROLE_REQUIRED_FOR_STRUCTURE'});
+      }
     if (!req.session.isAdmin && doc.owner !== req.session.userId) {
       const canEdit = doc.shareWithGroup || doc.shareWithDepartment || doc.public;
       if (!canEdit) {
@@ -439,6 +472,9 @@ export function createMockServer(): Promise<MockServer> {
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
+      if (rejectsByRole(req.session, doc.type, doc.subType)) {
+          return res.status(403).json({error: 'ROLE_REQUIRED_FOR_STRUCTURE'});
+      }
     if (!req.session.isAdmin && doc.owner !== req.session.userId) {
       return res.status(401).json({ error: 'Not authorized to delete this document' });
     }

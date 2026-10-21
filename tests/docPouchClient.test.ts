@@ -404,6 +404,37 @@ describe('document management', () => {
     expect(doc.owner).toBeDefined();
   });
 
+    it('should keep token on 403 (role insufficient)', async () => {
+        const adminClient = new docPouchClient(mockServer.url);
+        await adminClient.login(adminLogin);
+        await adminClient.setProtectedStructure(sampleDoc.type, sampleDoc.subType, 'admin');
+
+        const client = new docPouchClient(mockServer.url);
+        await client.login(userLogin);
+        const token = client.getToken();
+        await expect(client.createDocument(sampleDoc as I_DocumentEntry)).rejects.toThrow('API error: 403');
+        expect(client.getToken()).toBe(token);
+        expect(client.isAuthenticated()).toBe(true);
+        const me = await client.getCurrentUser();
+        expect(me!.role).toBe('member');
+    });
+
+    it('should keep token on 403 for update and remove of protected documents', async () => {
+        const adminClient = new docPouchClient(mockServer.url);
+        await adminClient.login(adminLogin);
+        await adminClient.setProtectedStructure(sampleDoc.type, sampleDoc.subType, 'admin');
+        const doc = await adminClient.createDocument(sampleDoc as I_DocumentEntry);
+
+        const client = new docPouchClient(mockServer.url);
+        await client.login(userLogin);
+        const token = client.getToken();
+        await expect(client.updateDocument(doc._id, {title: 'Hijacked'} as I_DocumentEntry)).rejects.toThrow('API error: 403');
+        await expect(client.removeDocument(doc._id)).rejects.toThrow('API error: 403');
+        expect(client.getToken()).toBe(token);
+        const me = await client.getCurrentUser();
+        expect(me!.role).toBe('member');
+    });
+
   it('should list documents', async () => {
     const client = new docPouchClient(mockServer.url);
     await client.login(adminLogin);

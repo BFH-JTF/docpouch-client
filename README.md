@@ -386,7 +386,9 @@ try {
 }
 ```
 
-Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
+Authentication failures (HTTP 401) automatically clear the stored JWT token.
+HTTP 403 (insufficient role, e.g. `ROLE_REQUIRED_FOR_STRUCTURE`) keeps the
+token, since it is still valid.
 
 ### Server error codes
 

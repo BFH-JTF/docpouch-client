@@ -1080,7 +1080,9 @@ export default class docPouchClient {
         const response = await fetch(url, options);
 
         if (!response.ok) {
-            if (response.status === 401 || response.status === 403) {
+            // Only 401 means the token itself is invalid. A 403 ("role
+            // insufficient") does not invalidate the token, so it is kept.
+            if (response.status === 401) {
                 this.authToken = null;
             }
             throw new Error(`API error: ${response.status} ${response.statusText}`);
