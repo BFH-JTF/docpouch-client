@@ -3,10 +3,19 @@ import { createServer, type Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import type { AddressInfo } from 'net';
 import crypto from 'crypto';
+import type { I_AssignableRole, I_ProtectionRole } from '../src/index.js';
+
+export interface RecordedRequest {
+  method: string;
+  url: string;
+  authorization?: string;
+  body?: any;
+}
 
 export interface MockSession {
   userId: string;
   isAdmin: boolean;
+  role?: I_AssignableRole;
   userName: string;
 }
 
@@ -18,6 +27,7 @@ export interface MockUser {
   department: string;
   group: string;
   isAdmin: boolean;
+  role?: I_AssignableRole;
 }
 
 export interface MockDocument {
@@ -49,6 +59,19 @@ export interface MockType {
   defaultStructureID?: string;
 }
 
+export interface MockAnonymousStructure {
+  _id: string;
+  type: number;
+  subType: number;
+}
+
+export interface MockProtectedStructure {
+  _id: string;
+  type: number;
+  subType: number;
+  minRole: I_ProtectionRole;
+}
+
 export interface MockServer {
   server: HttpServer;
   io: SocketIOServer;
@@ -58,9 +81,12 @@ export interface MockServer {
   documents: Map<string, MockDocument>;
   structures: Map<string, MockStructure>;
   types: Map<string, MockType>;
+  anonymousStructures: Map<string, MockAnonymousStructure>;
+  protectedStructures: Map<string, MockProtectedStructure>;
   sessions: Map<string, MockSession>;
   oidcClients: Map<string, any>;
   registrationToken: string;
+  requests: RecordedRequest[];
   reset: () => void;
   waitForPong: (timeout?: number) => Promise<any>;
 }
@@ -82,7 +108,10 @@ export function createMockServer(): Promise<MockServer> {
   const documents = new Map<string, MockDocument>();
   const structures = new Map<string, MockStructure>();
   const types = new Map<string, MockType>();
+  const anonymousStructures = new Map<string, MockAnonymousStructure>();
+  const protectedStructures = new Map<string, MockProtectedStructure>();
   const sessions = new Map<string, MockSession>();
+  const requests: RecordedRequest[] = [];
 
   function seedData() {
     const adminId = generateId();
@@ -94,6 +123,7 @@ export function createMockServer(): Promise<MockServer> {
       department: 'administration',
       group: 'auto-created',
       isAdmin: true,
+      role: 'admin',
     });
 
     const userId = generateId();
@@ -105,6 +135,19 @@ export function createMockServer(): Promise<MockServer> {
       department: 'engineering',
       group: 'alpha',
       isAdmin: false,
+      role: 'member',
+    });
+
+    const roleAdminId = generateId();
+    users.set(roleAdminId, {
+      _id: roleAdminId,
+      name: 'roleadmin',
+      password: 'roleadmin',
+      email: 'roleadmin@example.com',
+      department: 'administration',
+      group: 'alpha',
+      isAdmin: false,
+      role: 'admin',
     });
   }
 
@@ -113,7 +156,10 @@ export function createMockServer(): Promise<MockServer> {
     documents.clear();
     structures.clear();
     types.clear();
+    anonymousStructures.clear();
+    protectedStructures.clear();
     sessions.clear();
+    requests.length = 0;
     seedData();
   }
 
@@ -121,6 +167,18 @@ export function createMockServer(): Promise<MockServer> {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Record every incoming request so tests can assert methods, paths,
+  // Authorization headers and JSON bodies without fetch stubbing.
+  app.use((req: any, _res: any, next: any) => {
+    requests.push({
+      method: req.method,
+      url: req.originalUrl,
+      authorization: typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined,
+      body: req.body,
+    });
+    next();
+  });
 
   function authMiddleware(req: any, res: any, next: any) {
     const authHeader = req.headers.authorization;
@@ -139,6 +197,22 @@ export function createMockServer(): Promise<MockServer> {
   function adminMiddleware(req: any, res: any, next: any) {
     if (!req.session.isAdmin) {
       return res.status(401).json({ error: 'Admin access required' });
+    }
+    next();
+  }
+
+  // Admin role (without the isAdmin flag) is enough for role-admin endpoints.
+  function roleAdminMiddleware(req: any, res: any, next: any) {
+    if (!req.session.isAdmin && req.session.role !== 'admin') {
+      return res.status(401).json({ error: 'Admin access required' });
+    }
+    next();
+  }
+
+  // Super-admin privileges (isAdmin flag) for protected structure endpoints.
+  function superAdminMiddleware(req: any, res: any, next: any) {
+    if (!req.session.isAdmin) {
+      return res.status(401).json({ error: 'Super-admin access required' });
     }
     next();
   }
@@ -186,6 +260,7 @@ export function createMockServer(): Promise<MockServer> {
     sessions.set(token, {
       userId: user._id,
       isAdmin: user.isAdmin,
+      role: user.role,
       userName: user.name,
     });
     res.json({
@@ -197,6 +272,22 @@ export function createMockServer(): Promise<MockServer> {
   });
 
   // User endpoints
+  app.get('/users/whoami', authMiddleware, (req: any, res: any) => {
+    const user = users.get(req.session.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      department: user.department,
+      group: user.group,
+      isAdmin: user.isAdmin,
+      role: req.session.isAdmin ? 'superadmin' : (user.role ?? 'member'),
+    });
+  });
+
   app.get('/users/list', authMiddleware, (req: any, res: any) => {
     const userList = Array.from(users.values()).map(u => ({
       _id: u._id,
@@ -205,12 +296,13 @@ export function createMockServer(): Promise<MockServer> {
       department: u.department,
       group: u.group,
       isAdmin: u.isAdmin,
+      role: u.role ?? 'member',
     }));
     res.json(userList);
   });
 
   app.post('/users/create', authMiddleware, adminMiddleware, (req: any, res: any) => {
-    const { name, password, email, department, group, isAdmin } = req.body;
+    const { name, password, email, department, group, isAdmin, role } = req.body;
     const _id = generateId();
     const newUser: MockUser = {
       _id,
@@ -220,6 +312,7 @@ export function createMockServer(): Promise<MockServer> {
       department,
       group,
       isAdmin: isAdmin || false,
+      role: role ?? 'member',
     };
     users.set(_id, newUser);
     io.emit('newUser', { _id, name, email, department, group });
@@ -230,6 +323,7 @@ export function createMockServer(): Promise<MockServer> {
       department,
       group,
       isAdmin: newUser.isAdmin,
+      role: newUser.role,
     });
   });
 
@@ -249,6 +343,7 @@ export function createMockServer(): Promise<MockServer> {
     if (updates.department !== undefined) user.department = updates.department;
     if (updates.group !== undefined) user.group = updates.group;
     if (updates.isAdmin !== undefined && req.session.isAdmin) user.isAdmin = updates.isAdmin;
+    if (updates.role !== undefined && req.session.isAdmin) user.role = updates.role;
     users.set(userID, user);
     io.emit('changedUser', { _id: userID, ...updates });
     res.json({ success: true });
@@ -394,6 +489,63 @@ export function createMockServer(): Promise<MockServer> {
     structures.delete(structureID);
     io.emit('removedStructure', { removedID: structureID });
     res.json({ success: true });
+  });
+
+  // Structure access control (anonymous allowlist)
+  app.get('/structures/anonymous/list', authMiddleware, (req: any, res: any) => {
+    res.json(Array.from(anonymousStructures.values()));
+  });
+
+  app.post('/structures/anonymous/set', authMiddleware, roleAdminMiddleware, (req: any, res: any) => {
+    const { type, subType } = req.body;
+    const existing = Array.from(anonymousStructures.values()).find(e => e.type === type && e.subType === subType);
+    if (existing) {
+      return res.json(existing);
+    }
+    const entry: MockAnonymousStructure = { _id: generateId(), type, subType };
+    anonymousStructures.set(entry._id, entry);
+    res.json(entry);
+  });
+
+  app.delete('/structures/anonymous/remove', authMiddleware, roleAdminMiddleware, (req: any, res: any) => {
+    const { type, subType } = req.body;
+    let removed = 0;
+    Array.from(anonymousStructures.entries()).forEach(([id, entry]) => {
+      if (entry.type === type && entry.subType === subType) {
+        anonymousStructures.delete(id);
+        removed++;
+      }
+    });
+    res.json({ removed });
+  });
+
+  // Structure access control (protected structures)
+  app.get('/structures/protected/list', authMiddleware, (req: any, res: any) => {
+    res.json(Array.from(protectedStructures.values()));
+  });
+
+  app.post('/structures/protected/set', authMiddleware, superAdminMiddleware, (req: any, res: any) => {
+    const { type, subType, minRole } = req.body;
+    const existing = Array.from(protectedStructures.values()).find(r => r.type === type && r.subType === subType);
+    if (existing) {
+      existing.minRole = minRole;
+      return res.json(existing);
+    }
+    const rule: MockProtectedStructure = { _id: generateId(), type, subType, minRole };
+    protectedStructures.set(rule._id, rule);
+    res.json(rule);
+  });
+
+  app.delete('/structures/protected/remove', authMiddleware, superAdminMiddleware, (req: any, res: any) => {
+    const { type, subType } = req.body;
+    let removed = 0;
+    Array.from(protectedStructures.entries()).forEach(([id, rule]) => {
+      if (rule.type === type && rule.subType === subType) {
+        protectedStructures.delete(id);
+        removed++;
+      }
+    });
+    res.json({ removed });
   });
 
   // Type endpoints
@@ -595,9 +747,12 @@ export function createMockServer(): Promise<MockServer> {
         documents,
         structures,
         types,
+        anonymousStructures,
+        protectedStructures,
         sessions,
         oidcClients,
         registrationToken,
+        requests,
         reset,
         waitForPong,
       });

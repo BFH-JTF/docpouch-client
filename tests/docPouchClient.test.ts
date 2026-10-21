@@ -34,6 +34,7 @@ function delay(ms: number): Promise<void> {
 let mockServer: MockServer;
 const adminLogin = { name: 'admin', password: 'admin' };
 const userLogin = { name: 'testuser', password: 'testpass' };
+const roleAdminLogin = { name: 'roleadmin', password: 'roleadmin' };
 
 beforeAll(async () => {
   mockServer = await createMockServer();
@@ -493,6 +494,8 @@ describe('data structure management', () => {
     const structure = await client.createStructure({
       name: 'Test Structure',
       description: 'A test',
+      type: 1,
+      subType: 0,
       fields: sampleFields,
     });
     expect(structure._id).toBeDefined();
@@ -505,6 +508,8 @@ describe('data structure management', () => {
     await expect(client.createStructure({
       name: 'Should Fail',
       description: '',
+      type: 1,
+      subType: 0,
       fields: sampleFields,
     })).rejects.toThrow('API error: 401');
   });
@@ -512,8 +517,8 @@ describe('data structure management', () => {
   it('should list all structures', async () => {
     const client = new docPouchClient(mockServer.url);
     await client.login(adminLogin);
-    await client.createStructure({ name: 'S1', description: '', fields: sampleFields });
-    await client.createStructure({ name: 'S2', description: '', fields: sampleFields });
+    await client.createStructure({ name: 'S1', description: '', type: 1, subType: 0, fields: sampleFields });
+    await client.createStructure({ name: 'S2', description: '', type: 2, subType: 0, fields: sampleFields });
     const list = await client.getStructures();
     expect(list.length).toBe(2);
   });
@@ -521,7 +526,7 @@ describe('data structure management', () => {
   it('should update a structure', async () => {
     const client = new docPouchClient(mockServer.url);
     await client.login(adminLogin);
-    const s = await client.createStructure({ name: 'Original', description: '', fields: sampleFields });
+    const s = await client.createStructure({ name: 'Original', description: '', type: 1, subType: 0, fields: sampleFields });
     await client.updateStructure(s._id!, { name: 'Renamed' } as I_DataStructure);
     const list = await client.getStructures();
     const updated = list.find(x => x._id === s._id);
@@ -531,10 +536,179 @@ describe('data structure management', () => {
   it('should remove a structure', async () => {
     const client = new docPouchClient(mockServer.url);
     await client.login(adminLogin);
-    const s = await client.createStructure({ name: 'To Delete', description: '', fields: sampleFields });
+    const s = await client.createStructure({ name: 'To Delete', description: '', type: 1, subType: 0, fields: sampleFields });
     await client.removeStructure(s._id!);
     const list = await client.getStructures();
     expect(list.find(x => x._id === s._id)).toBeUndefined();
+  });
+});
+
+// ─── Structure Access Control ──────────────────────────────────
+
+describe('structure access control', () => {
+  it('should list anonymous allowlist entries', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+    const list = await client.listAnonymousStructures();
+    expect(Array.isArray(list)).toBe(true);
+    expect(list).toEqual([]);
+  });
+
+  it('should set an anonymous allowlist entry with correct request', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+    const token = client.getToken();
+
+    const entry = await client.setAnonymousAllowed(3, 2);
+
+    expect(entry._id).toBeDefined();
+    expect(entry.type).toBe(3);
+    expect(entry.subType).toBe(2);
+    const rec = mockServer.requests[mockServer.requests.length - 1];
+    expect(rec.method).toBe('POST');
+    expect(rec.url).toBe('/structures/anonymous/set');
+    expect(rec.authorization).toBe(`Bearer ${token}`);
+    expect(rec.body).toEqual({ type: 3, subType: 2 });
+
+    // Idempotent: setting an existing entry returns the stored one.
+    const again = await client.setAnonymousAllowed(3, 2);
+    expect(again._id).toBe(entry._id);
+  });
+
+  it('should list anonymous allowlist entries after setting', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+    const entry = await client.setAnonymousAllowed(4, 1);
+    const list = await client.listAnonymousStructures();
+    expect(list.length).toBe(1);
+    expect(list[0]._id).toBe(entry._id);
+    const rec = mockServer.requests[mockServer.requests.length - 1];
+    expect(rec.method).toBe('GET');
+    expect(rec.url).toBe('/structures/anonymous/list');
+    expect(rec.authorization).toBe(`Bearer ${client.getToken()}`);
+  });
+
+  it('should remove an anonymous allowlist entry with a DELETE body', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+    await client.setAnonymousAllowed(4, 1);
+    const token = client.getToken();
+    const result = await client.removeAnonymousAllowed(4, 1);
+    expect(result).toEqual({ removed: 1 });
+    const rec = mockServer.requests[mockServer.requests.length - 1];
+    expect(rec.method).toBe('DELETE');
+    expect(rec.url).toBe('/structures/anonymous/remove');
+    expect(rec.authorization).toBe(`Bearer ${token}`);
+    expect(rec.body).toEqual({ type: 4, subType: 1 });
+    expect(await client.listAnonymousStructures()).toEqual([]);
+  });
+
+  it('should reject anonymous allowlist changes for non-admin users', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(userLogin);
+    await expect(client.setAnonymousAllowed(3, 2)).rejects.toThrow('API error: 401');
+    expect(client.getToken()).toBeNull();
+  });
+
+  it('should allow role-admin users to manage the anonymous allowlist', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(roleAdminLogin);
+    const entry = await client.setAnonymousAllowed(5, 0);
+    expect(entry.type).toBe(5);
+    const result = await client.removeAnonymousAllowed(5, 0);
+    expect(result).toEqual({ removed: 1 });
+  });
+
+  it('should set a protected structure rule with correct request', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+    const token = client.getToken();
+
+    const rule = await client.setProtectedStructure(2, 7, 'manager');
+
+    expect(rule._id).toBeDefined();
+    expect(rule.type).toBe(2);
+    expect(rule.subType).toBe(7);
+    expect(rule.minRole).toBe('manager');
+    const rec = mockServer.requests[mockServer.requests.length - 1];
+    expect(rec.method).toBe('POST');
+    expect(rec.url).toBe('/structures/protected/set');
+    expect(rec.authorization).toBe(`Bearer ${token}`);
+    expect(rec.body).toEqual({ type: 2, subType: 7, minRole: 'manager' });
+
+    // Idempotent upsert: same (type, subType) updates the minRole.
+    const updated = await client.setProtectedStructure(2, 7, 'admin');
+    expect(updated._id).toBe(rule._id);
+    expect(updated.minRole).toBe('admin');
+  });
+
+  it('should list and remove protected structure rules', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+    const rule = await client.setProtectedStructure(6, 3, 'superadmin');
+    const list = await client.listProtectedStructures();
+    expect(list.length).toBe(1);
+    expect(list[0]._id).toBe(rule._id);
+    expect(list[0].minRole).toBe('superadmin');
+
+    const token = client.getToken();
+    const result = await client.removeProtectedStructure(6, 3);
+    expect(result).toEqual({ removed: 1 });
+    const rec = mockServer.requests[mockServer.requests.length - 1];
+    expect(rec.method).toBe('DELETE');
+    expect(rec.url).toBe('/structures/protected/remove');
+    expect(rec.authorization).toBe(`Bearer ${token}`);
+    expect(rec.body).toEqual({ type: 6, subType: 3 });
+    expect(await client.listProtectedStructures()).toEqual([]);
+  });
+
+  it('should reject protected structure changes without super-admin privileges', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(roleAdminLogin);
+    await expect(client.setProtectedStructure(2, 7, 'manager')).rejects.toThrow('API error: 401');
+    expect(client.getToken()).toBeNull();
+  });
+
+  it('should pass role through on createUser and updateUser', async () => {
+    const client = new docPouchClient(mockServer.url);
+    await client.login(adminLogin);
+
+    const created = await client.createUser({
+      name: 'roleuser',
+      password: 'pass',
+      department: 'sales',
+      group: 'beta',
+      isAdmin: false,
+      role: 'manager',
+    });
+    expect(created.role).toBe('manager');
+    const createRec = mockServer.requests[mockServer.requests.length - 1];
+    expect(createRec.method).toBe('POST');
+    expect(createRec.url).toBe('/users/create');
+    expect(createRec.body.role).toBe('manager');
+
+    const users: I_UserEntry[] = await client.listUsers();
+    const targetUser = users.find(u => u.name === 'testuser')!;
+    await client.updateUser(targetUser._id, { isAdmin: false, role: 'admin' });
+    const updateRec = mockServer.requests[mockServer.requests.length - 1];
+    expect(updateRec.method).toBe('PATCH');
+    expect(updateRec.url).toBe(`/users/update/${targetUser._id}`);
+    expect(updateRec.body.role).toBe('admin');
+
+    const usersAfter: I_UserEntry[] = await client.listUsers();
+    expect(usersAfter.find(u => u._id === targetUser._id)!.role).toBe('admin');
+  });
+
+  it('should return the effective role from getCurrentUser', async () => {
+    const adminClient = new docPouchClient(mockServer.url);
+    await adminClient.login(adminLogin);
+    const admin = await adminClient.getCurrentUser();
+    expect(admin!.role).toBe('superadmin');
+
+    const userClient = new docPouchClient(mockServer.url);
+    await userClient.login(userLogin);
+    const user = await userClient.getCurrentUser();
+    expect(user!.role).toBe('member');
   });
 });
 

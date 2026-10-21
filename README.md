@@ -18,6 +18,7 @@ Supports JWT and OIDC (OpenID Connect) authentication.
     - [User Management](#user-management)
     - [Document Management](#document-management)
     - [Data Structure Management](#data-structure-management)
+    - [Structure Access Control](#structure-access-control)
     - [Real-Time Synchronization](#real-time-synchronization)
 - [Error Handling](#error-handling)
 - [API Reference](#api-reference)
@@ -234,7 +235,7 @@ const uri = client.getPostLogoutRedirectUri();
 ### User Management
 
 ```typescript
-// List all users
+// List all users (each entry includes the effective `role`)
 const users = await client.listUsers();
 
 // Create a new user
@@ -243,13 +244,15 @@ const newUser = await client.createUser({
     password: 'password',
     department: 'IT',
     group: 'Developers',
-    isAdmin: false
+    isAdmin: false,
+    role: 'manager'      // optional, server defaults to 'member'
 });
 
-// Update a user
+// Update a user (role changes require super-admin privileges)
 await client.updateUser('user-id', {
     department: 'Engineering',
-    group: 'Frontend'
+    group: 'Frontend',
+    role: 'admin'
 });
 
 // Remove a user
@@ -288,9 +291,11 @@ const anonymousDocument = await client.createDocument({
 ### Data Structure Management
 
 ```typescript
-// Create a new data structure
+// Create a new data structure (type and subType are required by the server)
 const newStructure = await client.createStructure({
     name: "Data resulting from Vision-Mission-Value-Canvas",
+    type: 17,
+    subType: 11,
     fields: [
         {
             name: "mission_value_statement",
@@ -318,6 +323,37 @@ await client.removeStructure('structure-id');
 // List all data structures
 const structures = await client.getStructures();
 ```
+
+### Structure Access Control
+
+Structures can be allowlisted for anonymous document creation and protected by a minimum role:
+
+```typescript
+// Allow anonymous documents of a structure type (admin privileges, idempotent)
+const entry = await client.setAnonymousAllowed(17, 11);
+
+// List all anonymous allowlist entries (any user)
+const anonymous = await client.listAnonymousStructures();
+
+// Remove an allowlist entry (admin privileges)
+await client.removeAnonymousAllowed(17, 11);
+
+// Protect a structure with a minimum role (super-admin privileges, idempotent)
+const rule = await client.setProtectedStructure(17, 11, 'manager');
+
+// List all protection rules (any user)
+const rules = await client.listProtectedStructures();
+
+// Remove a protection rule (super-admin privileges)
+await client.removeProtectedStructure(17, 11);
+```
+
+A user's effective role is `isAdmin ? 'superadmin' : (role ?? 'member')`. The
+optional `role` field is stored on users and can be set via `createUser` and
+`updateUser` (super-admin only). Creating, changing or removing a document of
+a protected structure — as owner or via shared access — requires an effective
+role of at least the structure's `minRole`. See [Error Handling](#error-handling)
+for the related error codes.
 
 ### Real-Time Synchronization
 
@@ -351,6 +387,22 @@ try {
 ```
 
 Authentication failures (HTTP 401/403) automatically clear the stored JWT token.
+
+### Server error codes
+
+DocPouch returns structured error codes in the response body. The client
+throws a plain `Error("API error: <status> <statusText>")`, so match on the
+request endpoint and HTTP status to map back to the code:
+
+| Code | HTTP | Endpoints | Meaning |
+|---|---|---|---|
+| `ANONYMOUS_NOT_ALLOWED_FOR_STRUCTURE` | 400 | `POST /docs/create` (with `anonymous: true`) | The structure (type/subType) is not allowlisted for anonymous document creation |
+| `ROLE_REQUIRED_FOR_STRUCTURE` | 403 | `POST /docs/create`, `PATCH /docs/update/:id`, `DELETE /docs/remove/:id` | The user's effective role is below the protected structure's `minRole`; applies to owners and shared-access users alike |
+
+In addition, the structure access control endpoints answer `401` when
+privileges are insufficient (`POST/DELETE /structures/anonymous/set|remove`
+require admin, `POST/DELETE /structures/protected/set|remove` and role changes
+via `PATCH /users/update/:id` require super-admin).
 
 ## API Reference
 
@@ -438,7 +490,33 @@ Auto-registers or updates an OIDC client
 - `updateStructure(structureID: string, structureData: I_DataStructure): Promise<void>`
 - `removeStructure(structureID: string): Promise<void>`
 
+**Structure Access Control**
+- `listAnonymousStructures(): Promise<I_AnonymousStructureEntry[]>` — Lists all anonymous-document allowlist entries (any user)
+- `setAnonymousAllowed(type: number, subType: number): Promise<I_AnonymousStructureEntry>` — Allowlists a structure for anonymous documents (admin, idempotent)
+- `removeAnonymousAllowed(type: number, subType: number): Promise<{removed: number}>` — Removes an allowlist entry (admin)
+- `listProtectedStructures(): Promise<I_ProtectedStructureEntry[]>` — Lists all protected structure rules (any user)
+- `setProtectedStructure(type: number, subType: number, minRole: I_ProtectionRole): Promise<I_ProtectedStructureEntry>` — Creates/updates a protection rule (super-admin, idempotent)
+- `removeProtectedStructure(type: number, subType: number): Promise<{removed: number}>` — Removes a protection rule (super-admin)
+
 ## Types
+
+### I_Role
+
+```typescript
+'member' | 'manager' | 'admin' | 'superadmin'
+```
+
+### I_AssignableRole
+
+```typescript
+'member' | 'manager' | 'admin'   // stored on users; superadmin is expressed by isAdmin
+```
+
+### I_ProtectionRole
+
+```typescript
+'manager' | 'admin' | 'superadmin'   // minRole for protected structures
+```
 
 ### I_UserEntry
 
@@ -451,6 +529,7 @@ Auto-registers or updates an OIDC client
     department: string;
     group: string;
     isAdmin: boolean;
+    role?: I_AssignableRole;  // effective role = isAdmin ? 'superadmin' : (role ?? 'member')
 }
 ```
 
@@ -472,6 +551,7 @@ Auto-registers or updates an OIDC client
     department: string;
     group: string;
     email?: string;
+    role?: I_AssignableRole;
 }
 ```
 
@@ -485,6 +565,7 @@ Auto-registers or updates an OIDC client
     department: string;
     group: string;
     isAdmin: boolean;
+    role?: I_AssignableRole;  // server defaults to 'member'
 }
 ```
 
@@ -499,6 +580,7 @@ Auto-registers or updates an OIDC client
     department?: string;
     group?: string;
     isAdmin?: boolean;
+    role?: I_AssignableRole;  // super-admin only; server 401s otherwise (own account included)
 }
 ```
 
@@ -723,6 +805,8 @@ Extends `I_OidcConfig` with:
 {
     name: string;
     description?: string;
+    type: number;             // required by the server schema
+    subType: number;          // required by the server schema
     fields: I_StructureField[];
 }
 ```
@@ -734,6 +818,8 @@ Extends `I_OidcConfig` with:
     _id?: string;
     name?: string;
     description?: string;
+    type: number;             // required (not optional — structureUpdateSchema has .required())
+    subType: number;          // required (not optional — structureUpdateSchema has .required())
     fields?: I_StructureField[];
 }
 ```
@@ -746,6 +832,27 @@ Extends `I_OidcConfig` with:
     displayName: string;
     type: string;
     items?: string;
+}
+```
+
+### I_AnonymousStructureEntry
+
+```typescript
+{
+    _id?: string;
+    type: number;
+    subType: number;
+}
+```
+
+### I_ProtectedStructureEntry
+
+```typescript
+{
+    _id?: string;
+    type: number;
+    subType: number;
+    minRole: I_ProtectionRole;  // lowest role that may create, change or remove documents of this structure
 }
 ```
 

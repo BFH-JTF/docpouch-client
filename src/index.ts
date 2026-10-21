@@ -310,6 +310,93 @@ export default class docPouchClient {
         await this.request<void>(`/structures/remove/${structureID}`, 'DELETE');
     }
 
+    // Structure access control endpoints (anonymous allowlist & protected structures)
+    /**
+     * Lists all structures that are allowlisted for anonymous document creation.
+     *
+     * Endpoint: GET /structures/anonymous/list. Available to any
+     * authenticated user.
+     *
+     * @returns {Promise<I_AnonymousStructureEntry[]>} All allowlist entries.
+     */
+    async listAnonymousStructures(): Promise<I_AnonymousStructureEntry[]> {
+        return await this.request<I_AnonymousStructureEntry[]>('/structures/anonymous/list', 'GET');
+    }
+
+    /**
+     * Adds a structure (type/subType) to the anonymous allowlist. Idempotent:
+     * setting an existing entry returns the stored entry unchanged.
+     *
+     * Endpoint: POST /structures/anonymous/set. Requires admin privileges.
+     *
+     * @param {number} type - The structure type.
+     * @param {number} subType - The structure sub type.
+     * @returns {Promise<I_AnonymousStructureEntry>} The stored allowlist entry.
+     * @throws {Error} "API error: 401" when privileges are insufficient.
+     * @throws {Error} "API error: 400/403" for invalid payloads.
+     */
+    async setAnonymousAllowed(type: number, subType: number): Promise<I_AnonymousStructureEntry> {
+        return await this.request<I_AnonymousStructureEntry>('/structures/anonymous/set', 'POST', { type, subType });
+    }
+
+    /**
+     * Removes a structure (type/subType) from the anonymous allowlist.
+     *
+     * Endpoint: DELETE /structures/anonymous/remove. Requires admin privileges.
+     *
+     * @param {number} type - The structure type.
+     * @param {number} subType - The structure sub type.
+     * @returns {Promise<{removed: number}>} The number of removed entries.
+     * @throws {Error} "API error: 401" when privileges are insufficient.
+     */
+    async removeAnonymousAllowed(type: number, subType: number): Promise<{ removed: number }> {
+        return await this.request<{ removed: number }>('/structures/anonymous/remove', 'DELETE', { type, subType });
+    }
+
+    /**
+     * Lists all protected structure rules.
+     *
+     * Endpoint: GET /structures/protected/list. Available to any
+     * authenticated user.
+     *
+     * @returns {Promise<I_ProtectedStructureEntry[]>} All protection rules.
+     */
+    async listProtectedStructures(): Promise<I_ProtectedStructureEntry[]> {
+        return await this.request<I_ProtectedStructureEntry[]>('/structures/protected/list', 'GET');
+    }
+
+    /**
+     * Creates or updates a protected structure rule. Idempotent: setting an
+     * existing (type, subType) pair updates its minRole.
+     *
+     * Endpoint: POST /structures/protected/set. Requires super-admin privileges.
+     *
+     * @param {number} type - The structure type.
+     * @param {number} subType - The structure sub type.
+     * @param {I_ProtectionRole} minRole - Lowest role that may create, change
+     *   or remove documents of this structure ('member' is rejected by the server).
+     * @returns {Promise<I_ProtectedStructureEntry>} The stored protection rule.
+     * @throws {Error} "API error: 401" when privileges are insufficient.
+     * @throws {Error} "API error: 400/403" for invalid payloads.
+     */
+    async setProtectedStructure(type: number, subType: number, minRole: I_ProtectionRole): Promise<I_ProtectedStructureEntry> {
+        return await this.request<I_ProtectedStructureEntry>('/structures/protected/set', 'POST', { type, subType, minRole });
+    }
+
+    /**
+     * Removes a protected structure rule.
+     *
+     * Endpoint: DELETE /structures/protected/remove. Requires super-admin privileges.
+     *
+     * @param {number} type - The structure type.
+     * @param {number} subType - The structure sub type.
+     * @returns {Promise<{removed: number}>} The number of removed rules.
+     * @throws {Error} "API error: 401" when privileges are insufficient.
+     */
+    async removeProtectedStructure(type: number, subType: number): Promise<{ removed: number }> {
+        return await this.request<{ removed: number }>('/structures/protected/remove', 'DELETE', { type, subType });
+    }
+
     /**
      * Sets or clears the authentication token used for API and WebSocket auth.
      *
@@ -1156,8 +1243,9 @@ export default class docPouchClient {
      * `/users/whoami` endpoint. Works with both JWT and OIDC
      * authentication — the correct token is sent automatically.
      *
-     * @returns {Promise<I_UserEntry | null>} The user profile, or null
-     *   if the request fails or the user is not authenticated.
+     * @returns {Promise<I_UserEntry | null>} The user profile (the
+     *   response includes the effective `role`), or null if the request
+     *   fails or the user is not authenticated.
      */
     async getCurrentUser(): Promise<I_UserEntry | null> {
         try {
@@ -1414,9 +1502,15 @@ export default class docPouchClient {
 
 // Common type definitions for both frontend and backend
 
+// Role model
+export type I_Role = 'member' | 'manager' | 'admin' | 'superadmin';
+export type I_AssignableRole = 'member' | 'manager' | 'admin';    // stored on users; superadmin is expressed by isAdmin
+export type I_ProtectionRole = 'manager' | 'admin' | 'superadmin'; // minRole for protected structures
+
 // User related types
 export interface I_UserEntry extends I_UserCreation {
     _id: string;
+    role?: I_AssignableRole; // effective role = isAdmin ? 'superadmin' : (role ?? 'member')
 }
 
 export interface I_UserLogin {
@@ -1430,7 +1524,9 @@ export interface I_UserCreation {
     email?: string;
     department: string;
     group: string;
+    /** super-admin privileges */
     isAdmin: boolean;
+    role?: I_AssignableRole; // server defaults to 'member'
 }
 
 export interface I_UserUpdate {
@@ -1440,7 +1536,9 @@ export interface I_UserUpdate {
     email?: string;
     department?: string;
     group?: string;
+    /** super-admin privileges */
     isAdmin?: boolean;
+    role?: I_AssignableRole; // super-admin only; server 401s otherwise (own account included)
 }
 
 export interface I_UserDisplay {
@@ -1449,6 +1547,7 @@ export interface I_UserDisplay {
     department: string;
     group: string;
     email?: string;
+    role?: I_AssignableRole;
 }
 
 export interface I_LoginResponse {
@@ -1591,6 +1690,8 @@ export interface I_StructureField {
 export interface I_StructureCreation {
     name: string;
     description?: string;
+    type: number;
+    subType: number; // required by the server schema
     fields: I_StructureField[];
 }
 
@@ -1598,7 +1699,24 @@ export interface I_StructureUpdate {
     _id?: string
     name?: string;
     description?: string;
+    type: number;
+    subType: number; // required (not optional — structureUpdateSchema has .required())
     fields?: I_StructureField[];
+}
+
+// Structure access control types
+export interface I_AnonymousStructureEntry {
+    _id?: string;
+    type: number;
+    subType: number;
+}
+
+export interface I_ProtectedStructureEntry {
+    _id?: string;
+    type: number;
+    subType: number;
+    /** Lowest role that may create, change or remove documents of this structure. */
+    minRole: I_ProtectionRole;
 }
 
 // WebSocket-related types
