@@ -6,6 +6,14 @@ tests/
 tsconfig.json
 tsconfig.build.json
 jest.config.cjs
+.npmrc
+.gravatarKey
+
+# CI/CD
+.github/
+
+# Build/test artifacts
+coverage/
 
 # Random/temp files
 chat-*.txt
