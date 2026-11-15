@@ -59,6 +59,16 @@ export default class docPouchClient {
     private oidcState: string | null = null;
     private authMethod: 'jwt' | 'oidc' | 'none' = 'none';
     /**
+     * Where the OIDC session copy is persisted ('memory' keeps tokens
+     * in this instance only and never touches localStorage/sessionStorage).
+     */
+    private sessionPersistence: I_SessionPersistence = 'local';
+    /**
+     * Serialized OIDC session copy used when `sessionPersistence` is
+     * 'memory' (no Web Storage is involved in that mode).
+     */
+    private memoryOidcSession: string | null = null;
+    /**
      * Flag indicating whether a connection attempt is in progress.
      *
      * @private
@@ -85,8 +95,17 @@ export default class docPouchClient {
      * @param {number} [port=80] - The port number to use when the
      *   `host` does not already specify one (default is 80).
      * @param {(event: I_EventString, data: I_WsMessage) => void} [callback] - Optional callback function for socket events.
+     * @param {I_DocPouchClientOptions} [options] - Optional client options. Currently supports
+     *   `persistSession`, which controls where the OIDC session (including the
+     *   refresh token) is persisted: `'local'` (default, localStorage, backward
+     *   compatible), `'session'` (tab-scoped sessionStorage, cleared when the
+     *   browser closes) or `'memory'` (no persistence; a page reload requires a
+     *   full re-login).
      */
-    constructor(host: string, port: number = 80, callback?: (event: I_EventString, data: I_WsMessage) => void) {
+    constructor(host: string, port: number = 80, callback?: (event: I_EventString, data: I_WsMessage) => void, options?: I_DocPouchClientOptions) {
+        if (options?.persistSession !== undefined) {
+            this.setSessionPersistence(options.persistSession);
+        }
         this.baseUrl = host;
         this.port = port;
         const socketUrl = host.includes('://') ? host : `https://${host}`;
@@ -589,9 +608,53 @@ export default class docPouchClient {
         return true;
     }
 
+    /**
+     * Controls where the OIDC session (including the refresh token) is
+     * persisted.
+     *
+     * Switching modes while an OIDC session is active migrates the session
+     * copy to the new storage and clears the old one; with no active session
+     * only the mode is switched. A stale copy left in a previously used
+     * storage is ignored (and purged) by the next restore/persist operation.
+     *
+     * @param {I_SessionPersistence} mode - Where to persist the OIDC session:
+     *   `'memory'` (not persisted; strongest XSS protection, a page reload
+     *   requires a full re-login), `'session'` (tab-scoped sessionStorage,
+     *   cleared when the browser closes) or `'local'` (localStorage, default,
+     *   survives restarts but is the most XSS-exposed option).
+     */
+    setSessionPersistence(mode: I_SessionPersistence): void {
+        if (mode !== 'memory' && mode !== 'session' && mode !== 'local') {
+            throw new Error(`Invalid session persistence mode: ${String(mode)}`);
+        }
+        if (mode === this.sessionPersistence) return;
+
+        const oldMode = this.sessionPersistence;
+        const hadSession = this.oidcAccessToken !== null;
+        this.sessionPersistence = mode;
+
+        if (hadSession) {
+            this.persistOidcSession();
+            this.removeOidcSessionFrom(oldMode);
+        }
+    }
+
+    /**
+     * Returns the currently configured session persistence mode.
+     *
+     * @returns {I_SessionPersistence} The active mode ('memory', 'session' or 'local').
+     */
+    getSessionPersistence(): I_SessionPersistence {
+        return this.sessionPersistence;
+    }
+
     restoreOidcSession(): boolean {
-        const stored = localStorage.getItem('docpouch_oidc_session');
+        const stored = this.readPersistedOidcSession();
         if (!stored) {
+            // Nothing in the selected storage: purge stale copies that may
+            // have been left behind in other storages (mode switches or
+            // previous runs) before evaluating logout semantics.
+            this.clearPersistedOidcSession();
             // If no session, check if user was just logged out
             if (this.wasJustLoggedOut()) {
                 // User was logged out, emit oidc-logout event
@@ -1120,21 +1183,63 @@ export default class docPouchClient {
         this.clearPersistedOidcSession();
     }
 
-    private persistOidcSession(): void {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            const session = {
-                accessToken: this.oidcAccessToken,
-                refreshToken: this.oidcRefreshToken,
-                idToken: this.oidcIdToken,
-                expiry: this.oidcTokenExpiry
-            };
-            localStorage.setItem('docpouch_oidc_session', JSON.stringify(session));
+    /**
+     * Resolves the Web Storage instance that backs a session persistence
+     * mode. Returns null for 'memory' (no storage) and in every non-browser
+     * environment where the requested storage is unavailable.
+     */
+    private storageFor(mode: I_SessionPersistence): Storage | null {
+        if (mode === 'memory' || typeof window === 'undefined') return null;
+        return mode === 'session' ? window.sessionStorage : window.localStorage;
+    }
+
+    /**
+     * Removes only the OIDC session copy that belongs to the given mode,
+     * leaving copies in other storages untouched (used during mode
+     * migrations).
+     */
+    private removeOidcSessionFrom(mode: I_SessionPersistence): void {
+        if (mode === 'memory') {
+            this.memoryOidcSession = null;
+            return;
         }
+        const storage = this.storageFor(mode);
+        if (storage) storage.removeItem('docpouch_oidc_session');
+    }
+
+    /**
+     * Reads the serialized OIDC session copy from the storage selected by
+     * the current `sessionPersistence` mode.
+     */
+    private readPersistedOidcSession(): string | null {
+        if (this.sessionPersistence === 'memory') return this.memoryOidcSession;
+        const storage = this.storageFor(this.sessionPersistence);
+        return storage ? storage.getItem('docpouch_oidc_session') : null;
+    }
+
+    private persistOidcSession(): void {
+        const session = {
+            accessToken: this.oidcAccessToken,
+            refreshToken: this.oidcRefreshToken,
+            idToken: this.oidcIdToken,
+            expiry: this.oidcTokenExpiry
+        };
+        const serialized = JSON.stringify(session);
+        if (this.sessionPersistence === 'memory') {
+            this.memoryOidcSession = serialized;
+            return;
+        }
+        const storage = this.storageFor(this.sessionPersistence);
+        if (storage) storage.setItem('docpouch_oidc_session', serialized);
     }
 
     private clearPersistedOidcSession(): void {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            localStorage.removeItem('docpouch_oidc_session');
+        this.memoryOidcSession = null;
+        if (typeof window !== 'undefined') {
+            // Remove from both storages so stale copies can never survive
+            // a mode switch or a logout.
+            if (window.localStorage) window.localStorage.removeItem('docpouch_oidc_session');
+            if (window.sessionStorage) window.sessionStorage.removeItem('docpouch_oidc_session');
         }
     }
 
@@ -1431,7 +1536,9 @@ export default class docPouchClient {
      * Removes all localStorage keys managed by docpouch-client:
      * `authToken`, `authMethod`, `docpouch_oidc_session`,
      * `docpouch_oidc_client_id`, `docpouch_registration_token`,
-     * `isAdmin`, and `postLogoutRedirectUri`.
+     * `isAdmin`, and `postLogoutRedirectUri`. The OIDC session key is
+     * removed from both localStorage and sessionStorage so no stale
+     * copy survives a logout or an auth-state reset.
      */
     clearPersistedAuthState(): void {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -1442,6 +1549,9 @@ export default class docPouchClient {
             localStorage.removeItem('docpouch_registration_token');
             localStorage.removeItem('isAdmin');
             localStorage.removeItem('postLogoutRedirectUri');
+        }
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            sessionStorage.removeItem('docpouch_oidc_session');
         }
     }
 
@@ -1631,6 +1741,27 @@ export interface I_AuthState {
     token: string | null;
     isAdmin: boolean;
     userName: string;
+}
+
+export type I_SessionPersistence = 'memory' | 'session' | 'local';
+
+/**
+ * Optional options accepted by the docPouchClient constructor (4th
+ * parameter).
+ */
+export interface I_DocPouchClientOptions {
+    /**
+     * Where the OIDC session (including the refresh token) is persisted.
+     *
+     * - 'local' (default): localStorage - survives page reloads and browser
+     *   restarts; the most XSS-exposed option (kept for backward
+     *   compatibility).
+     * - 'session': sessionStorage - tab-scoped, cleared when the browser
+     *   closes; still XSS-readable but with a shorter lifetime.
+     * - 'memory': tokens are kept in memory only - strongest protection,
+     *   but a page reload requires a full re-login.
+     */
+    persistSession?: I_SessionPersistence;
 }
 
 // Document related types

@@ -13,6 +13,7 @@ Supports JWT and OIDC (OpenID Connect) authentication.
     - [OIDC Authentication](#oidc-authentication)
     - [OIDC Dynamic Client Registration](#oidc-dynamic-client-registration)
   - [Session Management & Auth State](#session-management--auth-state)
+  - [Configurable OIDC Session Persistence](#configurable-oidc-session-persistence)
   - [Event-Driven Logout](#event-driven-logout)
   - [Convenience OIDC Methods](#convenience-oidc-methods)
     - [User Management](#user-management)
@@ -179,6 +180,48 @@ if (client.wasJustLoggedOut()) {
 // Manually restore an OIDC session from localStorage
 const restored = client.restoreOidcSession();
 ```
+
+### Configurable OIDC Session Persistence
+
+By default the client stores the OIDC session — including the refresh token —
+in `localStorage` under `docpouch_oidc_session`. Where that session copy lives
+can be configured via the optional `persistSession` option:
+
+```typescript
+// At construction time (options is the 4th constructor argument; pass
+// undefined for the port/callback when you don't need them):
+const client = new docPouchClient(
+    'https://docpouch.example.org',
+    443,
+    undefined,
+    { persistSession: 'session' }
+);
+
+// Or switch at runtime. Switching while authenticated migrates the session
+// copy to the new storage and clears the old one:
+client.setSessionPersistence('session');
+
+// Inspect the active mode (useful for debugging):
+client.getSessionPersistence(); // 'local' | 'session' | 'memory'
+```
+
+| Mode     | Storage        | Survives page reload | Survives browser restart | Notes |
+|----------|----------------|----------------------|--------------------------|-------|
+| `local` (default) | `localStorage`   | yes | yes | Most XSS-exposed; retained for backward compatibility |
+| `session` | `sessionStorage` | yes | no (tab-scoped)   | Still XSS-readable, but cleared when the browser closes |
+| `memory`  | none             | no  | no                | Strongest protection; a page reload loses the refresh token → full re-login |
+
+Security trade-off: `session` is still readable by the same XSS payloads that
+can reach `localStorage` — its benefit is a shorter, tab-scoped lifetime.
+`memory` removes the persisted copy entirely at the cost of a re-login after
+every page reload. `local` stays the default so existing integrations keep
+their current behavior.
+
+This client-side hardening complements the server-side mitigations shipped in
+DocPouch ≥ 1.28 ([doc-pouch PR #143](https://github.com/BFH-JTF/doc-pouch/pull/143)):
+refresh-token rotation with reuse detection for public clients, and strict
+token introspection (`client_id` binding via `/oidc/introspection` or the
+`whoami` auth field).
 
 ### Event-Driven Logout
 
@@ -412,7 +455,7 @@ via `PATCH /users/update/:id` require super-admin).
 
 #### Constructor
 
-- `new docPouchClient(host: string, port?: number, callback?: (event: I_EventString, data: I_WsMessage) => void)`
+- `new docPouchClient(host: string, port?: number, callback?: (event: I_EventString, data: I_WsMessage) => void, options?: I_DocPouchClientOptions)`
 
 #### Methods
 
@@ -449,7 +492,9 @@ Auto-registers or updates an OIDC client
 
 - `initAuth(): Promise<I_AuthState>` — Restores authentication state (JWT/OIDC) on page load; recommended entry point
 - `clearAuth(): void` — Clears all local auth state without OIDC redirect
-- `restoreOidcSession(): boolean` — Restores OIDC session from localStorage
+- `restoreOidcSession(): boolean` — Restores the OIDC session from the storage selected by `persistSession`
+- `setSessionPersistence(mode: I_SessionPersistence): void` — Where the OIDC session is persisted (`'memory' | 'session' | 'local'`); migrates the active copy when switched mid-session
+- `getSessionPersistence(): I_SessionPersistence` — Returns the active session persistence mode
 - `wasJustLoggedOut(): boolean` — Checks if user just returned from an OIDC logout redirect
 - `persistAuthMethod(method: 'jwt' | 'oidc'): void` — Persists auth method to localStorage
 - `clearPersistedAuthState(): void` — Removes all docpouch localStorage keys
@@ -703,6 +748,25 @@ Extends `I_OidcConfig` with:
     token: string | null;
     isAdmin: boolean;
     userName: string;
+}
+```
+
+### I_SessionPersistence
+
+```typescript
+'memory' | 'session' | 'local'
+```
+
+### I_DocPouchClientOptions
+
+```typescript
+{
+    // Where the OIDC session (including the refresh token) is persisted.
+    // - 'local' (default): localStorage, survives restarts (backward compatible)
+    // - 'session': sessionStorage, tab-scoped, cleared when the browser closes
+    // - 'memory': tokens kept in memory only; a page reload requires a full
+    //   re-login
+    persistSession?: I_SessionPersistence;
 }
 ```
 
